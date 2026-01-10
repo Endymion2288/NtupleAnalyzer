@@ -9,6 +9,7 @@ MAX_EVENTS=-1
 JPSI_MUON_ID="soft"
 UPS_MUON_ID="tight"
 OUTPUT=""
+JOBS=1
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -29,6 +30,10 @@ while [[ $# -gt 0 ]]; do
             OUTPUT="$2"
             shift 2
             ;;
+        -j|--jobs)
+            JOBS="$2"
+            shift 2
+            ;;
         -h|--help)
             echo "Usage: $0 [options]"
             echo "Options:"
@@ -36,6 +41,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --jpsi-muon-id TYPE     J/psi Muon ID (soft/medium/tight/loose/none)"
             echo "  --ups-muon-id TYPE      Upsilon Muon ID (soft/medium/tight/loose/none)"
             echo "  -o, --output FILE       Output ROOT file"
+            echo "  -j, --jobs N            Parallel processes"
             exit 0
             ;;
         *)
@@ -53,7 +59,7 @@ echo "J/psi Muon ID: $JPSI_MUON_ID"
 echo "Upsilon Muon ID: $UPS_MUON_ID"
 
 # Build command
-CMD="python3 analyze_ntuple_JUP.py -n $MAX_EVENTS --jpsi-muon-id $JPSI_MUON_ID --ups-muon-id $UPS_MUON_ID"
+CMD="python3 analyze_ntuple_JUP.py -n $MAX_EVENTS --jpsi-muon-id $JPSI_MUON_ID --ups-muon-id $UPS_MUON_ID -j $JOBS"
 if [ -n "$OUTPUT" ]; then
     CMD="$CMD -o $OUTPUT"
 fi

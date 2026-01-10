@@ -8,6 +8,7 @@ cd "$SCRIPT_DIR"
 MAX_EVENTS=-1
 MUON_ID="soft"
 OUTPUT=""
+JOBS=1
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -24,12 +25,17 @@ while [[ $# -gt 0 ]]; do
             OUTPUT="$2"
             shift 2
             ;;
+        -j|--jobs)
+            JOBS="$2"
+            shift 2
+            ;;
         -h|--help)
             echo "Usage: $0 [options]"
             echo "Options:"
             echo "  -n, --max-events N   Maximum events to process (-1=all)"
             echo "  --muon-id TYPE       Muon ID requirement (soft/medium/tight/loose/none)"
             echo "  -o, --output FILE    Output ROOT file"
+            echo "  -j, --jobs N         Parallel processes"
             exit 0
             ;;
         *)
@@ -46,7 +52,7 @@ echo "Max events: $MAX_EVENTS"
 echo "Muon ID: $MUON_ID"
 
 # Build command
-CMD="python3 analyze_ntuple_JJP.py -n $MAX_EVENTS --muon-id $MUON_ID"
+CMD="python3 analyze_ntuple_JJP.py -n $MAX_EVENTS --muon-id $MUON_ID -j $JOBS"
 if [ -n "$OUTPUT" ]; then
     CMD="$CMD -o $OUTPUT"
 fi

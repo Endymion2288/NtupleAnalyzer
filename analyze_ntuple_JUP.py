@@ -21,14 +21,15 @@ import math
 import argparse
 import glob
 import time
+import tempfile
+import multiprocessing
 
 # =============================================================================
 # 配置参数
 # =============================================================================
 
-# 数据路径
-JUP_DATA_PATH = "/eos/user/x/xcheng/JpsiUpsPhi/merged_rootNtuple/"
-JUP_DATA_FILES = [os.path.basename(f) for f in glob.glob(JUP_DATA_PATH + "*.root")]
+# 数据路径 (默认可被 --input-dir 覆盖)
+JUP_DATA_PATH_DEFAULT = "/eos/user/x/xcheng/JpsiUpsPhi/merged_rootNtuple/"
 TREE_NAME = "mkcands/X_data"
 
 # 质量窗口
@@ -48,6 +49,7 @@ PHI_K_PT_MIN = 2.0
 # Muon ID 选择
 JPSI_MUON_ID = 'soft'
 UPS_MUON_ID = 'tight'
+DEFAULT_WORKERS = max(1, min(8, multiprocessing.cpu_count()))
 
 # 输出目录
 OUTPUT_DIR = "/eos/user/x/xcheng/CMSSW_14_0_18/src/NtupleAnalyzer/output/"
@@ -171,6 +173,119 @@ def create_histograms():
     return histograms
 
 
+def merge_histograms(dest, src):
+    """Add contents of src histograms into dest histograms in-place."""
+    for name, hdest in dest.items():
+        hsrc = src.Get(name)
+        if hsrc:
+            hdest.Add(hsrc)
+
+
+def process_file_batch(file_list, max_events, jpsi_muon_id, ups_muon_id, tree_name):
+    """Worker: process a list of files, return temp ROOT path and stats."""
+    chain = TChain(tree_name)
+    for f in file_list:
+        chain.Add(f)
+
+    histos = create_histograms()
+    n_total = chain.GetEntries()
+    n_to_process = n_total if max_events < 0 else min(max_events, n_total)
+    n_passed = 0
+
+    for i_evt in range(n_to_process):
+        chain.GetEntry(i_evt)
+        try:
+            n_cand = chain.Jpsi_mass.size()
+        except:
+            continue
+        if n_cand == 0:
+            continue
+
+        best_cand = None
+        best_score = -1
+
+        for i_cand in range(n_cand):
+            try:
+                jpsi_mass = chain.Jpsi_mass.at(i_cand)
+                ups_mass = chain.Ups_mass.at(i_cand)
+                phi_mass = chain.Phi_mass.at(i_cand)
+
+                if not (JPSI_MASS_MIN < jpsi_mass < JPSI_MASS_MAX):
+                    continue
+                if not (UPS_MASS_MIN < ups_mass < UPS_MASS_MAX):
+                    continue
+                if not (PHI_MASS_MIN < phi_mass < PHI_MASS_MAX):
+                    continue
+
+                jpsi_pt = chain.Jpsi_pt.at(i_cand)
+                ups_pt = chain.Ups_pt.at(i_cand)
+                phi_pt = chain.Phi_pt.at(i_cand)
+                if jpsi_pt < JPSI_PT_MIN or ups_pt < UPS_PT_MIN or phi_pt < PHI_PT_MIN:
+                    continue
+
+                jpsi_vtxprob = chain.Jpsi_VtxProb.at(i_cand)
+                ups_vtxprob = chain.Ups_VtxProb.at(i_cand)
+                phi_vtxprob = chain.Phi_VtxProb.at(i_cand)
+                if jpsi_vtxprob < JPSI_VTXPROB_MIN or ups_vtxprob < UPS_VTXPROB_MIN or phi_vtxprob < PHI_VTXPROB_MIN:
+                    continue
+
+                phi_k1_pt = chain.Phi_K_1_pt.at(i_cand)
+                phi_k2_pt = chain.Phi_K_2_pt.at(i_cand)
+                if phi_k1_pt < PHI_K_PT_MIN or phi_k2_pt < PHI_K_PT_MIN:
+                    continue
+
+                if jpsi_muon_id:
+                    jpsi_mu1_idx = chain.Jpsi_mu_1_Idx.at(i_cand)
+                    jpsi_mu2_idx = chain.Jpsi_mu_2_Idx.at(i_cand)
+                    if not (check_muon_id(chain, jpsi_mu1_idx, jpsi_muon_id) and
+                            check_muon_id(chain, jpsi_mu2_idx, jpsi_muon_id)):
+                        continue
+
+                if ups_muon_id:
+                    ups_mu1_idx = chain.Ups_mu_1_Idx.at(i_cand)
+                    ups_mu2_idx = chain.Ups_mu_2_Idx.at(i_cand)
+                    if not (check_muon_id(chain, ups_mu1_idx, ups_muon_id) and
+                            check_muon_id(chain, ups_mu2_idx, ups_muon_id)):
+                        continue
+
+                jpsi_eta = chain.Jpsi_eta.at(i_cand)
+                jpsi_phi = chain.Jpsi_phi.at(i_cand)
+                ups_eta = chain.Ups_eta.at(i_cand)
+                ups_phi = chain.Ups_phi.at(i_cand)
+                phi_eta = chain.Phi_eta.at(i_cand)
+                phi_phi = chain.Phi_phi.at(i_cand)
+
+                score = math.sqrt(jpsi_pt**2 + ups_pt**2 + phi_pt**2)
+                if score > best_score:
+                    best_score = score
+                    best_cand = {
+                        'jpsi_pt': jpsi_pt, 'jpsi_eta': jpsi_eta, 'jpsi_phi': jpsi_phi, 'jpsi_mass': jpsi_mass,
+                        'ups_pt': ups_pt, 'ups_eta': ups_eta, 'ups_phi': ups_phi, 'ups_mass': ups_mass,
+                        'phi_pt': phi_pt, 'phi_eta': phi_eta, 'phi_phi': phi_phi, 'phi_mass': phi_mass,
+                    }
+            except Exception:
+                continue
+
+        if best_cand is not None:
+            jpsi_4vec = TLorentzVector()
+            ups_4vec = TLorentzVector()
+            phi_4vec = TLorentzVector()
+            jpsi_4vec.SetPtEtaPhiM(best_cand['jpsi_pt'], best_cand['jpsi_eta'], best_cand['jpsi_phi'], best_cand['jpsi_mass'])
+            ups_4vec.SetPtEtaPhiM(best_cand['ups_pt'], best_cand['ups_eta'], best_cand['ups_phi'], best_cand['ups_mass'])
+            phi_4vec.SetPtEtaPhiM(best_cand['phi_pt'], best_cand['phi_eta'], best_cand['phi_phi'], best_cand['phi_mass'])
+            fill_histograms(histos, jpsi_4vec, ups_4vec, phi_4vec)
+            n_passed += 1
+
+    fd, tmp_path = tempfile.mkstemp(suffix=".root", prefix="jup_ntuple_tmp_")
+    os.close(fd)
+    fout = TFile(tmp_path, "RECREATE")
+    for h in histos.values():
+        h.Write()
+    fout.Close()
+
+    return tmp_path, n_to_process, n_passed
+
+
 def fill_histograms(histograms, jpsi_4vec, ups_4vec, phi_4vec):
     """填充所有直方图"""
     # 计算快度
@@ -226,7 +341,7 @@ def fill_histograms(histograms, jpsi_4vec, ups_4vec, phi_4vec):
     histograms['h_mass_all'].Fill((jpsi_4vec + ups_4vec + phi_4vec).M())
 
 
-def analyze_jup_ntuple(max_events=-1, jpsi_muon_id='soft', ups_muon_id='tight', output_file=None):
+def analyze_jup_ntuple(max_events=-1, jpsi_muon_id='soft', ups_muon_id='tight', output_file=None, input_dir=None, n_workers=1):
     """
     分析JUP Ntuple
     
@@ -242,164 +357,77 @@ def analyze_jup_ntuple(max_events=-1, jpsi_muon_id='soft', ups_muon_id='tight', 
     
     start_time = time.time()
     
+    # 数据路径选择
+    data_path = input_dir if input_dir else JUP_DATA_PATH_DEFAULT
+    data_files = [os.path.basename(f) for f in glob.glob(os.path.join(data_path, "*.root"))]
+    
     # 创建TChain
     chain = TChain(TREE_NAME)
     n_files = 0
-    for f in JUP_DATA_FILES:
-        filepath = JUP_DATA_PATH + f
+    for f in data_files:
+        filepath = os.path.join(data_path, f)
         if os.path.exists(filepath):
-            chain.Add(filepath)
-            n_files += 1
-    
-    print(f"[INFO] 加载 {n_files} 个文件")
-    
-    n_total = chain.GetEntries()
-    n_to_process = n_total if max_events < 0 else min(max_events, n_total)
-    print(f"[INFO] 总事件数: {n_total}, 处理: {n_to_process}")
-    print(f"[INFO] J/psi Muon ID: {jpsi_muon_id}, Upsilon Muon ID: {ups_muon_id}")
-    
-    # 创建直方图
-    histograms = create_histograms()
-    
-    n_passed = 0
-    
-    for i_evt in range(n_to_process):
-        if i_evt % 10000 == 0:
+            full_files = [os.path.join(data_path, f) for f in data_files if os.path.exists(os.path.join(data_path, f))]
+            n_files = len(full_files)
+            print(f"[INFO] 数据路径: {data_path}")
+            print(f"[INFO] 加载 {n_files} 个文件")
+
+            if n_files == 0:
+                print("[ERROR] 未找到输入文件")
+                return None
+
+            if n_workers <= 1:
+                tmp_path, n_proc, n_passed = process_file_batch(full_files, max_events, jpsi_muon_id, ups_muon_id, TREE_NAME)
+                temp_files = [tmp_path]
+                total_events = n_proc
+                total_selected = n_passed
+            else:
+                batches = [[] for _ in range(n_workers)]
+                for idx, f in enumerate(full_files):
+                    batches[idx % n_workers].append(f)
+                batches = [b for b in batches if b]
+                n_workers = len(batches)
+                if max_events < 0:
+                    per_batch_events = -1
+                else:
+                    per_batch_events = math.ceil(max_events / n_workers)
+
+                with multiprocessing.Pool(processes=n_workers) as pool:
+                    results = pool.starmap(process_file_batch,
+                                           [(b, per_batch_events, jpsi_muon_id, ups_muon_id, TREE_NAME) for b in batches])
+                temp_files = [r[0] for r in results]
+                total_events = sum(r[1] for r in results)
+                total_selected = sum(r[2] for r in results)
+
+            histograms = create_histograms()
+            for tf in temp_files:
+                fin = TFile.Open(tf)
+                if fin and not fin.IsZombie():
+                    merge_histograms(histograms, fin)
+                fin.Close()
+                os.remove(tf)
+
             elapsed = time.time() - start_time
-            rate = i_evt / elapsed if elapsed > 0 else 0
-            print(f"[INFO] 处理事件 {i_evt}/{n_to_process} ({rate:.0f} evt/s)")
-        
-        chain.GetEntry(i_evt)
-        
-        # 获取候选数
-        try:
-            n_cand = chain.Jpsi_mass.size()
-        except:
-            continue
-        
-        if n_cand == 0:
-            continue
-        
-        # 选择最佳候选
-        best_cand = None
-        best_score = -1
-        
-        for i_cand in range(n_cand):
-            try:
-                # 获取质量
-                jpsi_mass = chain.Jpsi_mass.at(i_cand)
-                ups_mass = chain.Ups_mass.at(i_cand)
-                phi_mass = chain.Phi_mass.at(i_cand)
-                
-                # 质量窗口cut
-                if not (JPSI_MASS_MIN < jpsi_mass < JPSI_MASS_MAX):
-                    continue
-                if not (UPS_MASS_MIN < ups_mass < UPS_MASS_MAX):
-                    continue
-                if not (PHI_MASS_MIN < phi_mass < PHI_MASS_MAX):
-                    continue
-                
-                # 运动学cuts
-                jpsi_pt = chain.Jpsi_pt.at(i_cand)
-                ups_pt = chain.Ups_pt.at(i_cand)
-                phi_pt = chain.Phi_pt.at(i_cand)
-                
-                if jpsi_pt < JPSI_PT_MIN:
-                    continue
-                if ups_pt < UPS_PT_MIN:
-                    continue
-                if phi_pt < PHI_PT_MIN:
-                    continue
-                
-                # 顶点概率cuts
-                jpsi_vtxprob = chain.Jpsi_VtxProb.at(i_cand)
-                ups_vtxprob = chain.Ups_VtxProb.at(i_cand)
-                phi_vtxprob = chain.Phi_VtxProb.at(i_cand)
-                
-                if jpsi_vtxprob < JPSI_VTXPROB_MIN:
-                    continue
-                if ups_vtxprob < UPS_VTXPROB_MIN:
-                    continue
-                if phi_vtxprob < PHI_VTXPROB_MIN:
-                    continue
-                
-                # K介子pT cut
-                phi_k1_pt = chain.Phi_K_1_pt.at(i_cand)
-                phi_k2_pt = chain.Phi_K_2_pt.at(i_cand)
-                if phi_k1_pt < PHI_K_PT_MIN or phi_k2_pt < PHI_K_PT_MIN:
-                    continue
-                
-                # Muon ID cuts
-                # J/psi muons
-                jpsi_mu1_idx = chain.Jpsi_mu_1_Idx.at(i_cand)
-                jpsi_mu2_idx = chain.Jpsi_mu_2_Idx.at(i_cand)
-                if not check_muon_id(chain, jpsi_mu1_idx, jpsi_muon_id):
-                    continue
-                if not check_muon_id(chain, jpsi_mu2_idx, jpsi_muon_id):
-                    continue
-                
-                # Upsilon muons
-                ups_mu1_idx = chain.Ups_mu_1_Idx.at(i_cand)
-                ups_mu2_idx = chain.Ups_mu_2_Idx.at(i_cand)
-                if not check_muon_id(chain, ups_mu1_idx, ups_muon_id):
-                    continue
-                if not check_muon_id(chain, ups_mu2_idx, ups_muon_id):
-                    continue
-                
-                # 获取运动学信息
-                jpsi_eta = chain.Jpsi_eta.at(i_cand)
-                jpsi_phi = chain.Jpsi_phi.at(i_cand)
-                ups_eta = chain.Ups_eta.at(i_cand)
-                ups_phi = chain.Ups_phi.at(i_cand)
-                phi_eta = chain.Phi_eta.at(i_cand)
-                phi_phi = chain.Phi_phi.at(i_cand)
-                
-                # 计算pT score
-                score = math.sqrt(jpsi_pt**2 + ups_pt**2 + phi_pt**2)
-                
-                if score > best_score:
-                    best_score = score
-                    best_cand = {
-                        'jpsi_pt': jpsi_pt, 'jpsi_eta': jpsi_eta,
-                        'jpsi_phi': jpsi_phi, 'jpsi_mass': jpsi_mass,
-                        'ups_pt': ups_pt, 'ups_eta': ups_eta,
-                        'ups_phi': ups_phi, 'ups_mass': ups_mass,
-                        'phi_pt': phi_pt, 'phi_eta': phi_eta,
-                        'phi_phi': phi_phi, 'phi_mass': phi_mass,
-                    }
-                    
-            except Exception as e:
-                continue
-        
-        # 填充最佳候选
-        if best_cand is not None:
-            jpsi_4vec = TLorentzVector()
-            ups_4vec = TLorentzVector()
-            phi_4vec = TLorentzVector()
-            
-            jpsi_4vec.SetPtEtaPhiM(best_cand['jpsi_pt'], best_cand['jpsi_eta'],
-                                    best_cand['jpsi_phi'], best_cand['jpsi_mass'])
-            ups_4vec.SetPtEtaPhiM(best_cand['ups_pt'], best_cand['ups_eta'],
-                                   best_cand['ups_phi'], best_cand['ups_mass'])
-            phi_4vec.SetPtEtaPhiM(best_cand['phi_pt'], best_cand['phi_eta'],
-                                   best_cand['phi_phi'], best_cand['phi_mass'])
-            
-            fill_histograms(histograms, jpsi_4vec, ups_4vec, phi_4vec)
-            n_passed += 1
-    
-    elapsed = time.time() - start_time
-    print(f"\n[INFO] 处理完成!")
-    print(f"[INFO] 通过选择的事件数: {n_passed}/{n_to_process}")
-    print(f"[INFO] 选择效率: {100*n_passed/n_to_process:.2f}%")
-    print(f"[INFO] 耗时: {elapsed:.1f}s ({n_to_process/elapsed:.0f} evt/s)")
-    
-    # 保存直方图
-    if output_file is None:
-        os.makedirs(OUTPUT_DIR, exist_ok=True)
-        output_file = os.path.join(OUTPUT_DIR, "jup_ntuple_correlations.root")
-    
-    fout = TFile(output_file, "RECREATE")
-    for h in histograms.values():
+            n_to_process = total_events if max_events < 0 else min(max_events, total_events)
+            print(f"\n[INFO] 处理完成!")
+            print(f"[INFO] 通过选择的事件数: {total_selected}/{n_to_process}")
+            eff = 0 if n_to_process == 0 else 100 * total_selected / n_to_process
+            rate = 0 if elapsed <= 0 else total_events / elapsed
+            print(f"[INFO] 选择效率: {eff:.2f}%")
+            print(f"[INFO] 耗时: {elapsed:.1f}s ({rate:.0f} evt/s)")
+
+            if output_file is None:
+                os.makedirs(OUTPUT_DIR, exist_ok=True)
+                output_file = os.path.join(OUTPUT_DIR, "jup_ntuple_correlations.root")
+
+            fout = TFile(output_file, "RECREATE")
+            for h in histograms.values():
+                h.Write()
+            fout.Close()
+
+            print(f"[INFO] 输出保存到: {output_file}")
+
+            return histograms
         h.Write()
     fout.Close()
     
@@ -420,6 +448,10 @@ def main():
     parser.add_argument('--ups-muon-id', type=str, default='tight',
                         choices=['loose', 'medium', 'tight', 'soft', 'none'],
                         help='Upsilon Muon ID要求 (默认: tight)')
+    parser.add_argument('-i', '--input-dir', type=str, default=None,
+                        help='输入Ntuple目录 (默认使用内置数据路径)')
+    parser.add_argument('-j', '--jobs', type=int, default=1,
+                        help='并行进程数 (默认: 1)')
     
     args = parser.parse_args()
     
@@ -432,7 +464,9 @@ def main():
         max_events=args.max_events,
         jpsi_muon_id=jpsi_muon_id,
         ups_muon_id=ups_muon_id,
-        output_file=args.output
+        output_file=args.output,
+        input_dir=args.input_dir,
+        n_workers=max(1, args.jobs)
     )
 
 
