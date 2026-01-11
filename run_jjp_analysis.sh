@@ -8,7 +8,7 @@ cd "$SCRIPT_DIR"
 MAX_EVENTS=-1
 MUON_ID="soft"
 OUTPUT=""
-JOBS=1
+JOBS=16
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do

@@ -44,6 +44,14 @@ PHI_PT_MIN = 2.0
 PHI_VTXPROB_MIN = 0.05
 PHI_K_PT_MIN = 2.0
 
+# Track-misuse veto thresholds (muon vs kaon)
+TRACK_DR_MAX = 0.005
+TRACK_RELPT_MAX = 0.01
+
+# Particle masses for 4-vector building
+MUON_MASS = 0.105658
+KAON_MASS = 0.493677
+
 # Muon ID 选择
 JPSI_MUON_ID = 'soft'
 DEFAULT_WORKERS = max(1, min(8, multiprocessing.cpu_count()))
@@ -78,6 +86,13 @@ def rapidity_from_4vec(pt, eta, phi, mass):
     vec = TLorentzVector()
     vec.SetPtEtaPhiM(pt, eta, phi, mass)
     return vec.Rapidity()
+
+
+def build_vec_from_pxpypz(px, py, pz, mass):
+    e = math.sqrt(px * px + py * py + pz * pz + mass * mass)
+    vec = TLorentzVector()
+    vec.SetPxPyPzE(px, py, pz, e)
+    return vec
 
 
 def check_muon_id(chain, mu_idx, id_type):
@@ -195,6 +210,7 @@ def process_file_batch(file_list, max_events, muon_id, tree_name):
     n_total = chain.GetEntries()
     n_to_process = n_total if max_events < 0 else min(max_events, n_total)
     n_passed = 0
+    n_track_misuse = 0
 
     for i_evt in range(n_to_process):
         chain.GetEntry(i_evt)
@@ -238,11 +254,11 @@ def process_file_batch(file_list, max_events, muon_id, tree_name):
                 if phi_k1_pt < PHI_K_PT_MIN or phi_k2_pt < PHI_K_PT_MIN:
                     continue
 
+                jpsi1_mu1_idx = chain.Jpsi_1_mu_1_Idx.at(i_cand)
+                jpsi1_mu2_idx = chain.Jpsi_1_mu_2_Idx.at(i_cand)
+                jpsi2_mu1_idx = chain.Jpsi_2_mu_1_Idx.at(i_cand)
+                jpsi2_mu2_idx = chain.Jpsi_2_mu_2_Idx.at(i_cand)
                 if muon_id:
-                    jpsi1_mu1_idx = chain.Jpsi_1_mu_1_Idx.at(i_cand)
-                    jpsi1_mu2_idx = chain.Jpsi_1_mu_2_Idx.at(i_cand)
-                    jpsi2_mu1_idx = chain.Jpsi_2_mu_1_Idx.at(i_cand)
-                    jpsi2_mu2_idx = chain.Jpsi_2_mu_2_Idx.at(i_cand)
                     if not (check_muon_id(chain, jpsi1_mu1_idx, muon_id) and
                             check_muon_id(chain, jpsi1_mu2_idx, muon_id) and
                             check_muon_id(chain, jpsi2_mu1_idx, muon_id) and
@@ -263,11 +279,63 @@ def process_file_batch(file_list, max_events, muon_id, tree_name):
                         'jpsi1_pt': jpsi1_pt, 'jpsi1_eta': jpsi1_eta, 'jpsi1_phi': jpsi1_phi, 'jpsi1_mass': jpsi1_mass,
                         'jpsi2_pt': jpsi2_pt, 'jpsi2_eta': jpsi2_eta, 'jpsi2_phi': jpsi2_phi, 'jpsi2_mass': jpsi2_mass,
                         'phi_pt': phi_pt, 'phi_eta': phi_eta, 'phi_phi': phi_phi, 'phi_mass': phi_mass,
+                        'jpsi1_mu1_idx': int(jpsi1_mu1_idx), 'jpsi1_mu2_idx': int(jpsi1_mu2_idx),
+                        'jpsi2_mu1_idx': int(jpsi2_mu1_idx), 'jpsi2_mu2_idx': int(jpsi2_mu2_idx),
+                        'phi_k1_px': chain.Phi_K_1_px.at(i_cand), 'phi_k1_py': chain.Phi_K_1_py.at(i_cand), 'phi_k1_pz': chain.Phi_K_1_pz.at(i_cand),
+                        'phi_k2_px': chain.Phi_K_2_px.at(i_cand), 'phi_k2_py': chain.Phi_K_2_py.at(i_cand), 'phi_k2_pz': chain.Phi_K_2_pz.at(i_cand),
+                        'phi_k1_pt': phi_k1_pt, 'phi_k2_pt': phi_k2_pt,
+                        'phi_k1_eta': chain.Phi_K_1_eta.at(i_cand), 'phi_k1_phi': chain.Phi_K_1_phi.at(i_cand),
+                        'phi_k2_eta': chain.Phi_K_2_eta.at(i_cand), 'phi_k2_phi': chain.Phi_K_2_phi.at(i_cand),
                     }
             except Exception:
                 continue
 
         if best_cand is not None:
+            # Validate muon indices for safety
+            try:
+                mu_size = chain.muPx.size()
+                idxs = [best_cand['jpsi1_mu1_idx'], best_cand['jpsi1_mu2_idx'],
+                        best_cand['jpsi2_mu1_idx'], best_cand['jpsi2_mu2_idx']]
+                if any(idx < 0 for idx in idxs) or any(idx >= mu_size for idx in idxs):
+                    continue
+
+                mu1_vec = build_vec_from_pxpypz(chain.muPx.at(best_cand['jpsi1_mu1_idx']),
+                                                chain.muPy.at(best_cand['jpsi1_mu1_idx']),
+                                                chain.muPz.at(best_cand['jpsi1_mu1_idx']), MUON_MASS)
+                mu2_vec = build_vec_from_pxpypz(chain.muPx.at(best_cand['jpsi1_mu2_idx']),
+                                                chain.muPy.at(best_cand['jpsi1_mu2_idx']),
+                                                chain.muPz.at(best_cand['jpsi1_mu2_idx']), MUON_MASS)
+                mu3_vec = build_vec_from_pxpypz(chain.muPx.at(best_cand['jpsi2_mu1_idx']),
+                                                chain.muPy.at(best_cand['jpsi2_mu1_idx']),
+                                                chain.muPz.at(best_cand['jpsi2_mu1_idx']), MUON_MASS)
+                mu4_vec = build_vec_from_pxpypz(chain.muPx.at(best_cand['jpsi2_mu2_idx']),
+                                                chain.muPy.at(best_cand['jpsi2_mu2_idx']),
+                                                chain.muPz.at(best_cand['jpsi2_mu2_idx']), MUON_MASS)
+            except Exception:
+                continue
+
+            k1_vec = build_vec_from_pxpypz(best_cand['phi_k1_px'], best_cand['phi_k1_py'], best_cand['phi_k1_pz'], KAON_MASS)
+            k2_vec = build_vec_from_pxpypz(best_cand['phi_k2_px'], best_cand['phi_k2_py'], best_cand['phi_k2_pz'], KAON_MASS)
+
+            # Track-misuse veto: all muons (Jpsi1 & Jpsi2) vs Phi kaons
+            track_misuse = False
+            for mu_vec in (mu1_vec, mu2_vec, mu3_vec, mu4_vec):
+                for k_vec in (k1_vec, k2_vec):
+                    deta = mu_vec.Eta() - k_vec.Eta()
+                    dphi = delta_phi(mu_vec.Phi(), k_vec.Phi())
+                    dr = math.sqrt(deta * deta + dphi * dphi)
+                    abs_dpt = abs(mu_vec.Pt() - k_vec.Pt())
+                    rel_dpt = abs_dpt / mu_vec.Pt() if mu_vec.Pt() > 0 else 1e9
+                    if dr < TRACK_DR_MAX and rel_dpt < TRACK_RELPT_MAX:
+                        track_misuse = True
+                        break
+                if track_misuse:
+                    break
+
+            if track_misuse:
+                n_track_misuse += 1
+                continue
+
             jpsi1_4vec = TLorentzVector()
             jpsi2_4vec = TLorentzVector()
             phi_4vec = TLorentzVector()
@@ -285,7 +353,7 @@ def process_file_batch(file_list, max_events, muon_id, tree_name):
         h.Write()
     fout.Close()
 
-    return tmp_path, n_to_process, n_passed
+    return tmp_path, n_to_process, n_passed, n_track_misuse
 
 
 def fill_histograms(histograms, jpsi1_4vec, jpsi2_4vec, phi_4vec):
@@ -378,10 +446,11 @@ def analyze_jjp_ntuple(max_events=-1, muon_id='soft', output_file=None, input_di
     # 并行/串行处理
     if n_workers <= 1:
         # 单进程复用现有逻辑但通过 worker 函数
-        tmp_path, n_proc, n_passed = process_file_batch(full_files, max_events, muon_id, TREE_NAME)
+        tmp_path, n_proc, n_passed, n_track_misuse = process_file_batch(full_files, max_events, muon_id, TREE_NAME)
         temp_files = [tmp_path]
         total_events = n_proc
         total_selected = n_passed
+        total_track_misuse = n_track_misuse
     else:
         batches = [[] for _ in range(n_workers)]
         for idx, f in enumerate(full_files):
@@ -401,6 +470,7 @@ def analyze_jjp_ntuple(max_events=-1, muon_id='soft', output_file=None, input_di
         temp_files = [r[0] for r in results]
         total_events = sum(r[1] for r in results)
         total_selected = sum(r[2] for r in results)
+        total_track_misuse = sum(r[3] for r in results)
 
     # 合并直方图
     histograms = create_histograms()
@@ -415,6 +485,7 @@ def analyze_jjp_ntuple(max_events=-1, muon_id='soft', output_file=None, input_di
     n_to_process = total_events if max_events < 0 else min(max_events, total_events)
     print(f"\n[INFO] 处理完成!")
     print(f"[INFO] 通过选择的事件数: {total_selected}/{n_to_process}")
+    print(f"[INFO] 径迹误用(μ↔K)剔除事件数: {total_track_misuse}")
     eff = 0 if n_to_process == 0 else 100 * total_selected / n_to_process
     rate = 0 if elapsed <= 0 else total_events / elapsed
     print(f"[INFO] 选择效率: {eff:.2f}%")

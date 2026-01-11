@@ -23,6 +23,8 @@ import glob
 import time
 import tempfile
 import multiprocessing
+import sys
+import subprocess
 
 # =============================================================================
 # 配置参数
@@ -45,6 +47,14 @@ UPS_VTXPROB_MIN = 0.10
 PHI_PT_MIN = 2.0
 PHI_VTXPROB_MIN = 0.05
 PHI_K_PT_MIN = 2.0
+
+# Track-misuse veto thresholds (muon vs kaon)
+TRACK_DR_MAX = 0.005
+TRACK_RELPT_MAX = 0.01
+
+# Particle masses for 4-vector building
+MUON_MASS = 0.105658
+KAON_MASS = 0.493677
 
 # Muon ID 选择
 JPSI_MUON_ID = 'soft'
@@ -74,6 +84,13 @@ def delta_phi(phi1, phi2):
     while dphi < -math.pi:
         dphi += 2 * math.pi
     return dphi
+
+
+def build_vec_from_pxpypz(px, py, pz, mass):
+    e = math.sqrt(px * px + py * py + pz * pz + mass * mass)
+    vec = TLorentzVector()
+    vec.SetPxPyPzE(px, py, pz, e)
+    return vec
 
 
 def check_muon_id(chain, mu_idx, id_type):
@@ -191,6 +208,7 @@ def process_file_batch(file_list, max_events, jpsi_muon_id, ups_muon_id, tree_na
     n_total = chain.GetEntries()
     n_to_process = n_total if max_events < 0 else min(max_events, n_total)
     n_passed = 0
+    n_track_misuse = 0
 
     for i_evt in range(n_to_process):
         chain.GetEntry(i_evt)
@@ -234,16 +252,17 @@ def process_file_batch(file_list, max_events, jpsi_muon_id, ups_muon_id, tree_na
                 if phi_k1_pt < PHI_K_PT_MIN or phi_k2_pt < PHI_K_PT_MIN:
                     continue
 
+                jpsi_mu1_idx = chain.Jpsi_mu_1_Idx.at(i_cand)
+                jpsi_mu2_idx = chain.Jpsi_mu_2_Idx.at(i_cand)
+                ups_mu1_idx = chain.Ups_mu_1_Idx.at(i_cand)
+                ups_mu2_idx = chain.Ups_mu_2_Idx.at(i_cand)
+
                 if jpsi_muon_id:
-                    jpsi_mu1_idx = chain.Jpsi_mu_1_Idx.at(i_cand)
-                    jpsi_mu2_idx = chain.Jpsi_mu_2_Idx.at(i_cand)
                     if not (check_muon_id(chain, jpsi_mu1_idx, jpsi_muon_id) and
                             check_muon_id(chain, jpsi_mu2_idx, jpsi_muon_id)):
                         continue
 
                 if ups_muon_id:
-                    ups_mu1_idx = chain.Ups_mu_1_Idx.at(i_cand)
-                    ups_mu2_idx = chain.Ups_mu_2_Idx.at(i_cand)
                     if not (check_muon_id(chain, ups_mu1_idx, ups_muon_id) and
                             check_muon_id(chain, ups_mu2_idx, ups_muon_id)):
                         continue
@@ -262,11 +281,62 @@ def process_file_batch(file_list, max_events, jpsi_muon_id, ups_muon_id, tree_na
                         'jpsi_pt': jpsi_pt, 'jpsi_eta': jpsi_eta, 'jpsi_phi': jpsi_phi, 'jpsi_mass': jpsi_mass,
                         'ups_pt': ups_pt, 'ups_eta': ups_eta, 'ups_phi': ups_phi, 'ups_mass': ups_mass,
                         'phi_pt': phi_pt, 'phi_eta': phi_eta, 'phi_phi': phi_phi, 'phi_mass': phi_mass,
+                        'jpsi_mu1_idx': int(jpsi_mu1_idx), 'jpsi_mu2_idx': int(jpsi_mu2_idx),
+                        'ups_mu1_idx': int(ups_mu1_idx), 'ups_mu2_idx': int(ups_mu2_idx),
+                        'phi_k1_px': chain.Phi_K_1_px.at(i_cand), 'phi_k1_py': chain.Phi_K_1_py.at(i_cand), 'phi_k1_pz': chain.Phi_K_1_pz.at(i_cand),
+                        'phi_k2_px': chain.Phi_K_2_px.at(i_cand), 'phi_k2_py': chain.Phi_K_2_py.at(i_cand), 'phi_k2_pz': chain.Phi_K_2_pz.at(i_cand),
+                        'phi_k1_pt': phi_k1_pt, 'phi_k2_pt': phi_k2_pt,
+                        'phi_k1_eta': chain.Phi_K_1_eta.at(i_cand), 'phi_k1_phi': chain.Phi_K_1_phi.at(i_cand),
+                        'phi_k2_eta': chain.Phi_K_2_eta.at(i_cand), 'phi_k2_phi': chain.Phi_K_2_phi.at(i_cand),
                     }
             except Exception:
                 continue
 
         if best_cand is not None:
+            # Validate muon indices
+            try:
+                mu_size = chain.muPx.size()
+                idxs = [best_cand['jpsi_mu1_idx'], best_cand['jpsi_mu2_idx'],
+                        best_cand['ups_mu1_idx'], best_cand['ups_mu2_idx']]
+                if any(idx < 0 for idx in idxs) or any(idx >= mu_size for idx in idxs):
+                    continue
+                mu_jpsi1 = build_vec_from_pxpypz(chain.muPx.at(best_cand['jpsi_mu1_idx']),
+                                                 chain.muPy.at(best_cand['jpsi_mu1_idx']),
+                                                 chain.muPz.at(best_cand['jpsi_mu1_idx']), MUON_MASS)
+                mu_jpsi2 = build_vec_from_pxpypz(chain.muPx.at(best_cand['jpsi_mu2_idx']),
+                                                 chain.muPy.at(best_cand['jpsi_mu2_idx']),
+                                                 chain.muPz.at(best_cand['jpsi_mu2_idx']), MUON_MASS)
+                mu_ups1 = build_vec_from_pxpypz(chain.muPx.at(best_cand['ups_mu1_idx']),
+                                                chain.muPy.at(best_cand['ups_mu1_idx']),
+                                                chain.muPz.at(best_cand['ups_mu1_idx']), MUON_MASS)
+                mu_ups2 = build_vec_from_pxpypz(chain.muPx.at(best_cand['ups_mu2_idx']),
+                                                chain.muPy.at(best_cand['ups_mu2_idx']),
+                                                chain.muPz.at(best_cand['ups_mu2_idx']), MUON_MASS)
+            except Exception:
+                continue
+
+            k1_vec = build_vec_from_pxpypz(best_cand['phi_k1_px'], best_cand['phi_k1_py'], best_cand['phi_k1_pz'], KAON_MASS)
+            k2_vec = build_vec_from_pxpypz(best_cand['phi_k2_px'], best_cand['phi_k2_py'], best_cand['phi_k2_pz'], KAON_MASS)
+
+            # Track-misuse veto: any muon (Jpsi or Upsilon) vs Phi kaons
+            track_misuse = False
+            for mu_vec in (mu_jpsi1, mu_jpsi2, mu_ups1, mu_ups2):
+                for k_vec in (k1_vec, k2_vec):
+                    deta = mu_vec.Eta() - k_vec.Eta()
+                    dphi = delta_phi(mu_vec.Phi(), k_vec.Phi())
+                    dr = math.sqrt(deta * deta + dphi * dphi)
+                    abs_dpt = abs(mu_vec.Pt() - k_vec.Pt())
+                    rel_dpt = abs_dpt / mu_vec.Pt() if mu_vec.Pt() > 0 else 1e9
+                    if dr < TRACK_DR_MAX and rel_dpt < TRACK_RELPT_MAX:
+                        track_misuse = True
+                        break
+                if track_misuse:
+                    break
+
+            if track_misuse:
+                n_track_misuse += 1
+                continue
+
             jpsi_4vec = TLorentzVector()
             ups_4vec = TLorentzVector()
             phi_4vec = TLorentzVector()
@@ -283,7 +353,7 @@ def process_file_batch(file_list, max_events, jpsi_muon_id, ups_muon_id, tree_na
         h.Write()
     fout.Close()
 
-    return tmp_path, n_to_process, n_passed
+    return tmp_path, n_to_process, n_passed, n_track_misuse
 
 
 def fill_histograms(histograms, jpsi_4vec, ups_4vec, phi_4vec):
@@ -359,80 +429,113 @@ def analyze_jup_ntuple(max_events=-1, jpsi_muon_id='soft', ups_muon_id='tight', 
     
     # 数据路径选择
     data_path = input_dir if input_dir else JUP_DATA_PATH_DEFAULT
-    data_files = [os.path.basename(f) for f in glob.glob(os.path.join(data_path, "*.root"))]
-    
-    # 创建TChain
-    chain = TChain(TREE_NAME)
-    n_files = 0
-    for f in data_files:
-        filepath = os.path.join(data_path, f)
-        if os.path.exists(filepath):
-            full_files = [os.path.join(data_path, f) for f in data_files if os.path.exists(os.path.join(data_path, f))]
-            n_files = len(full_files)
-            print(f"[INFO] 数据路径: {data_path}")
-            print(f"[INFO] 加载 {n_files} 个文件")
 
+    if data_path.startswith("root://"):
+        # Enumerate files via xrdfs to avoid wildcard-on-directory issues
+        try:
+            # Split host and path
+            stripped = data_path[len("root://"):]
+            host, remote_path = stripped.split("/", 1)
+            remote_path = "/" + remote_path  # ensure leading slash
+
+            # Recursive listing
+            cmd = ["xrdfs", host, "ls", "-R", remote_path]
+            res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            all_paths = res.stdout.strip().splitlines()
+
+            # Filter candidates
+            ntuple_files = [p for p in all_paths if p.lower().endswith("output_ntuple.root")]
+            ntuple_files += [p for p in all_paths if "ntuple" in os.path.basename(p).lower() and p.lower().endswith(".root")]
+            ntuple_files = list(dict.fromkeys(ntuple_files))
+
+            if len(ntuple_files) == 0:
+                other_root = [p for p in all_paths if p.lower().endswith(".root") and "miniaod" not in p.lower()]
+                ntuple_files = other_root
+
+            n_files = len(ntuple_files)
             if n_files == 0:
-                print("[ERROR] 未找到输入文件")
+                print(f"[INFO] 数据路径: {data_path}")
+                print("[ERROR] 未找到输入文件 (XRootD)")
                 return None
 
-            if n_workers <= 1:
-                tmp_path, n_proc, n_passed = process_file_batch(full_files, max_events, jpsi_muon_id, ups_muon_id, TREE_NAME)
-                temp_files = [tmp_path]
-                total_events = n_proc
-                total_selected = n_passed
-            else:
-                batches = [[] for _ in range(n_workers)]
-                for idx, f in enumerate(full_files):
-                    batches[idx % n_workers].append(f)
-                batches = [b for b in batches if b]
-                n_workers = len(batches)
-                if max_events < 0:
-                    per_batch_events = -1
-                else:
-                    per_batch_events = math.ceil(max_events / n_workers)
+            data_files = [f"root://{host}{p}" for p in ntuple_files]
+            print(f"[INFO] 数据路径: {data_path}")
+            print(f"[INFO] 加载 {n_files} 个文件 (xrdfs 枚举)")
+        except Exception as e:
+            print(f"[ERROR] XRootD 枚举失败: {e}")
+            return None
 
-                with multiprocessing.Pool(processes=n_workers) as pool:
-                    results = pool.starmap(process_file_batch,
-                                           [(b, per_batch_events, jpsi_muon_id, ups_muon_id, TREE_NAME) for b in batches])
-                temp_files = [r[0] for r in results]
-                total_events = sum(r[1] for r in results)
-                total_selected = sum(r[2] for r in results)
+    else:
+        files_raw = glob.glob(os.path.join(data_path, "*.root"))
+        files_raw += glob.glob(os.path.join(data_path, "*", "*.root"))
+        files_raw = list(set(files_raw))
 
-            histograms = create_histograms()
-            for tf in temp_files:
-                fin = TFile.Open(tf)
-                if fin and not fin.IsZombie():
-                    merge_histograms(histograms, fin)
-                fin.Close()
-                os.remove(tf)
+        data_files_clean = [f for f in files_raw if "miniaod" not in os.path.basename(f).lower()]
+        data_files = [f for f in data_files_clean if "ntuple" in os.path.basename(f).lower()]
 
-            elapsed = time.time() - start_time
-            n_to_process = total_events if max_events < 0 else min(max_events, total_events)
-            print(f"\n[INFO] 处理完成!")
-            print(f"[INFO] 通过选择的事件数: {total_selected}/{n_to_process}")
-            eff = 0 if n_to_process == 0 else 100 * total_selected / n_to_process
-            rate = 0 if elapsed <= 0 else total_events / elapsed
-            print(f"[INFO] 选择效率: {eff:.2f}%")
-            print(f"[INFO] 耗时: {elapsed:.1f}s ({rate:.0f} evt/s)")
+        if len(data_files) == 0 and len(data_files_clean) > 0:
+            print("[WARN] 未找到包含 'ntuple' 的ROOT文件，退回到全部非MINIAOD文件")
+            data_files = data_files_clean
 
-            if output_file is None:
-                os.makedirs(OUTPUT_DIR, exist_ok=True)
-                output_file = os.path.join(OUTPUT_DIR, "jup_ntuple_correlations.root")
+        n_files = len(data_files)
+        print(f"[INFO] 数据路径: {data_path}")
+        print(f"[INFO] 加载 {n_files} 个文件")
 
-            fout = TFile(output_file, "RECREATE")
-            for h in histograms.values():
-                h.Write()
-            fout.Close()
+        if n_files == 0:
+            print("[ERROR] 未找到输入文件")
+            return None
 
-            print(f"[INFO] 输出保存到: {output_file}")
+    if n_workers <= 1:
+        tmp_path, n_proc, n_passed, n_track_misuse = process_file_batch(data_files, max_events, jpsi_muon_id, ups_muon_id, TREE_NAME)
+        temp_files = [tmp_path]
+        total_events = n_proc
+        total_selected = n_passed
+        total_track_misuse = n_track_misuse
+    else:
+        batches = [[] for _ in range(n_workers)]
+        for idx, f in enumerate(data_files):
+            batches[idx % n_workers].append(f)
+        batches = [b for b in batches if b]
+        n_workers = len(batches)
+        per_batch_events = -1 if max_events < 0 else math.ceil(max_events / n_workers)
 
-            return histograms
+        with multiprocessing.Pool(processes=n_workers) as pool:
+            results = pool.starmap(process_file_batch,
+                                   [(b, per_batch_events, jpsi_muon_id, ups_muon_id, TREE_NAME) for b in batches])
+        temp_files = [r[0] for r in results]
+        total_events = sum(r[1] for r in results)
+        total_selected = sum(r[2] for r in results)
+        total_track_misuse = sum(r[3] for r in results)
+
+    histograms = create_histograms()
+    for tf in temp_files:
+        fin = TFile.Open(tf)
+        if fin and not fin.IsZombie():
+            merge_histograms(histograms, fin)
+        fin.Close()
+        os.remove(tf)
+
+    elapsed = time.time() - start_time
+    n_to_process = total_events if max_events < 0 else min(max_events, total_events)
+    print(f"\n[INFO] 处理完成!")
+    print(f"[INFO] 通过选择的事件数: {total_selected}/{n_to_process}")
+    print(f"[INFO] 径迹误用(μ↔K)剔除事件数: {total_track_misuse}")
+    eff = 0 if n_to_process == 0 else 100 * total_selected / n_to_process
+    rate = 0 if elapsed <= 0 else total_events / elapsed
+    print(f"[INFO] 选择效率: {eff:.2f}%")
+    print(f"[INFO] 耗时: {elapsed:.1f}s ({rate:.0f} evt/s)")
+
+    if output_file is None:
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
+        output_file = os.path.join(OUTPUT_DIR, "jup_ntuple_correlations.root")
+
+    fout = TFile(output_file, "RECREATE")
+    for h in histograms.values():
         h.Write()
     fout.Close()
-    
+
     print(f"[INFO] 输出保存到: {output_file}")
-    
+
     return histograms
 
 
@@ -460,7 +563,7 @@ def main():
     jpsi_muon_id = None if args.jpsi_muon_id == 'none' else args.jpsi_muon_id
     ups_muon_id = None if args.ups_muon_id == 'none' else args.ups_muon_id
     
-    analyze_jup_ntuple(
+    result = analyze_jup_ntuple(
         max_events=args.max_events,
         jpsi_muon_id=jpsi_muon_id,
         ups_muon_id=ups_muon_id,
@@ -468,6 +571,9 @@ def main():
         input_dir=args.input_dir,
         n_workers=max(1, args.jobs)
     )
+
+    if result is None:
+        sys.exit(1)
 
 
 if __name__ == '__main__':

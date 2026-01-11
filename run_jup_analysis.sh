@@ -9,7 +9,7 @@ MAX_EVENTS=-1
 JPSI_MUON_ID="soft"
 UPS_MUON_ID="tight"
 OUTPUT=""
-JOBS=1
+JOBS=16
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do

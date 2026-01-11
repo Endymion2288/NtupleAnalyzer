@@ -44,6 +44,11 @@ KAON_MASS = 0.493677
 # Window definition for Jpsi2 vs Phi
 DPHI_MIN, DPHI_MAX = 0.3, 0.7
 DY_MIN, DY_MAX = 0.0, 0.4
+DPHI_ALT_MIN, DPHI_ALT_MAX = 0.7, 1.1
+DPHI_LOW_MIN, DPHI_LOW_MAX = 0.0, 0.3
+DY_HIGH_MIN, DY_HIGH_MAX = 0.4, 0.8
+TRACK_DR_MAX = 0.005
+TRACK_RELPT_MAX = 0.01
 
 
 # -----------------------------------------------------------------------------
@@ -52,7 +57,7 @@ DY_MIN, DY_MAX = 0.0, 0.4
 def setup_root():
     ROOT.gROOT.SetBatch(True)
     ROOT.gStyle.SetOptStat(0)
-    ROOT.gStyle.SetOptTitle(0)
+    ROOT.gStyle.SetOptTitle(1)
 
 
 def delta_phi(phi1, phi2):
@@ -138,6 +143,35 @@ def create_histograms():
     h['h2_dy_dphi_jpsi2_phi'] = TH2F('h2_dy_dphi_jpsi2_phi',
         'J/#psi_{2} - #phi: #Delta y vs #Delta#phi;#Delta y;#Delta#phi',
         6, DY_MIN, DY_MAX, 8, DPHI_MIN, DPHI_MAX)
+    h['h2_dy_dphi_jpsi2_phi_alt'] = TH2F('h2_dy_dphi_jpsi2_phi_alt',
+        'J/#psi_{2} - #phi: #Delta y vs #Delta#phi (0.7<#Delta#phi<1.1);#Delta y;#Delta#phi',
+        6, DY_MIN, DY_MAX, 8, DPHI_ALT_MIN, DPHI_ALT_MAX)
+    h['h2_dy_dphi_jpsi2_phi_low'] = TH2F('h2_dy_dphi_jpsi2_phi_low',
+        'J/#psi_{2} - #phi: #Delta y vs #Delta#phi (0<#Delta#phi<0.3);#Delta y;#Delta#phi',
+        6, DY_MIN, DY_MAX, 8, DPHI_LOW_MIN, DPHI_LOW_MAX)
+    h['h2_dy_dphi_jpsi2_phi_dyhi'] = TH2F('h2_dy_dphi_jpsi2_phi_dyhi',
+        'J/#psi_{2} - #phi: #Delta y vs #Delta#phi (0.3<#Delta#phi<0.7, 0.4<#Delta y<0.8);#Delta y;#Delta#phi',
+        6, DY_HIGH_MIN, DY_HIGH_MAX, 8, DPHI_MIN, DPHI_MAX)
+
+    # Min DeltaR and |pT difference| between Jpsi2 muons and Phi kaons (4 combos), take event-wise minimum
+    h['h_mu2k_min_dR'] = TH1F('h_mu2k_min_dR', 'min #DeltaR(#mu_{J/#psi2}, K_{#phi});min #DeltaR;Events', 18, 0, 3.6)
+    h['h_mu2k_min_abs_dpt'] = TH1F('h_mu2k_min_abs_dpt', 'min |p_{T}^{#mu_{J/#psi2}} - p_{T}^{K_{#phi}}|;min |#Delta p_{T}| [GeV];Events', 18, 0, 20)
+
+    # Duplicate 1D histograms for comparison windows (0.7<DeltaPhi<1.1 and 0<DeltaPhi<0.3) using the same binning
+    base_keys = [k for k in list(h.keys()) if not k.endswith('_alt') and not k.endswith('_low') and not k.endswith('_dyhi')
+                 and not k.startswith('h2_dy_dphi_jpsi2_phi_alt') and not k.startswith('h2_dy_dphi_jpsi2_phi_low') and not k.startswith('h2_dy_dphi_jpsi2_phi_dyhi')]
+    for key in base_keys:
+        if isinstance(h[key], TH1F):
+            alt_name = f"{key}_alt"
+            low_name = f"{key}_low"
+            dyhi_name = f"{key}_dyhi"
+            h[alt_name] = h[key].Clone(alt_name)
+            h[low_name] = h[key].Clone(low_name)
+            h[dyhi_name] = h[key].Clone(dyhi_name)
+    # Enable per-bin statistical uncertainties
+    for hist in h.values():
+        if isinstance(hist, TH1F):
+            hist.Sumw2()
     return h
 
 
@@ -145,12 +179,86 @@ def save_plots(histos, plot_dir):
     os.makedirs(plot_dir, exist_ok=True)
     canvas = ROOT.TCanvas("c", "c", 800, 600)
     for name, hist in histos.items():
+        # skip alt entries; we draw them together with their base
+        if name.endswith('_alt') or name.endswith('_low') or name.endswith('_dyhi'):
+            continue
+
+        alt_name = f"{name}_alt"
+        alt_hist = histos.get(alt_name)
+        low_name = f"{name}_low"
+        low_hist = histos.get(low_name)
+        dyhi_name = f"{name}_dyhi"
+        dyhi_hist = histos.get(dyhi_name)
+
         canvas.Clear()
-        if isinstance(hist, TH2F):
+        if (alt_hist or low_hist or dyhi_hist) and not isinstance(hist, TH2F):
+            hist.SetLineColor(ROOT.kBlack)
+            hist.SetLineWidth(2)
+            hist.SetLineStyle(1)
+            hist.SetMarkerColor(ROOT.kBlack)
+            hist.SetMarkerStyle(20)
+            if alt_hist:
+                alt_hist.SetLineColor(ROOT.kRed)
+                alt_hist.SetLineStyle(1)
+                alt_hist.SetLineWidth(2)
+                alt_hist.SetMarkerColor(ROOT.kRed)
+                alt_hist.SetMarkerStyle(21)
+            if low_hist:
+                low_hist.SetLineColor(ROOT.kBlue)
+                low_hist.SetLineStyle(1)
+                low_hist.SetLineWidth(2)
+                low_hist.SetMarkerColor(ROOT.kBlue)
+                low_hist.SetMarkerStyle(22)
+            if dyhi_hist:
+                dyhi_hist.SetLineColor(ROOT.kGreen + 2)
+                dyhi_hist.SetLineStyle(1)
+                dyhi_hist.SetLineWidth(2)
+                dyhi_hist.SetMarkerColor(ROOT.kGreen + 2)
+                dyhi_hist.SetMarkerStyle(23)
+            max_y = max([h.GetMaximum() for h in [hist, alt_hist, low_hist, dyhi_hist] if h])
+            for htmp in [hist, alt_hist, low_hist, dyhi_hist]:
+                if htmp:
+                    htmp.SetMinimum(0)
+                    htmp.SetMaximum(max_y * 1.25 if max_y > 0 else 1.0)
+            hist.Draw("E1")
+            if alt_hist:
+                alt_hist.Draw("E1 SAME")
+            if low_hist:
+                low_hist.Draw("E1 SAME")
+            if dyhi_hist:
+                dyhi_hist.Draw("E1 SAME")
+            # Move legend upward to avoid covering the curves
+            leg = ROOT.TLegend(0.55, 0.70, 0.89, 0.92)
+            leg.SetBorderSize(0)
+            leg.SetFillStyle(0)
+            leg.AddEntry(hist, "0.3<#Delta#phi<0.7", "l")
+            if alt_hist:
+                leg.AddEntry(alt_hist, "0.7<#Delta#phi<1.1", "l")
+            if low_hist:
+                leg.AddEntry(low_hist, "0<#Delta#phi<0.3", "l")
+            if dyhi_hist:
+                leg.AddEntry(dyhi_hist, "0.3<#Delta#phi<0.7, 0.4<#Delta y<0.8", "l")
+            leg.Draw()
+            canvas.SaveAs(os.path.join(plot_dir, f"{name}.png"))
+        elif isinstance(hist, TH2F):
             hist.Draw("COLZ")
+            canvas.SaveAs(os.path.join(plot_dir, f"{name}.png"))
+            if alt_hist:
+                canvas.Clear()
+                alt_hist.Draw("COLZ")
+                canvas.SaveAs(os.path.join(plot_dir, f"{alt_name}.png"))
+            if low_hist:
+                canvas.Clear()
+                low_hist.Draw("COLZ")
+                canvas.SaveAs(os.path.join(plot_dir, f"{low_name}.png"))
+            if dyhi_hist:
+                canvas.Clear()
+                dyhi_hist.Draw("COLZ")
+                canvas.SaveAs(os.path.join(plot_dir, f"{dyhi_name}.png"))
         else:
+            hist.SetMinimum(0)
             hist.Draw("HIST")
-        canvas.SaveAs(os.path.join(plot_dir, f"{name}.png"))
+            canvas.SaveAs(os.path.join(plot_dir, f"{name}.png"))
 
 
 def merge_histograms(dest, src):
@@ -170,6 +278,9 @@ def process_file_batch(file_list, max_events, muon_id, tree_name):
     n_total = chain.GetEntries()
     n_to_process = n_total if max_events < 0 else min(max_events, n_total)
     n_window = 0
+    n_window_alt = 0
+    n_window_low = 0
+    n_window_dyhi = 0
     n_has_cand = 0
     n_pass_baseline = 0
     n_fail_mass = 0
@@ -177,6 +288,7 @@ def process_file_batch(file_list, max_events, muon_id, tree_name):
     n_fail_vtx = 0
     n_fail_kpt = 0
     n_fail_mu = 0
+    n_track_misuse = 0
     n_mu_fill_ok = 0
     n_mu_fill_fail = 0
     n_mu_size_zero = 0
@@ -277,6 +389,7 @@ def process_file_batch(file_list, max_events, muon_id, tree_name):
 
         n_pass_baseline += 1
 
+        # Build boson 4-vectors once
         jpsi1_4vec = TLorentzVector()
         jpsi2_4vec = TLorentzVector()
         phi_4vec = TLorentzVector()
@@ -287,22 +400,15 @@ def process_file_batch(file_list, max_events, muon_id, tree_name):
         dy_jpsi2_phi = abs(jpsi2_4vec.Rapidity() - phi_4vec.Rapidity())
         dphi_jpsi2_phi = abs(delta_phi(jpsi2_4vec.Phi(), phi_4vec.Phi()))
 
-        if not (DPHI_MIN < dphi_jpsi2_phi < DPHI_MAX and DY_MIN < dy_jpsi2_phi < DY_MAX):
+        in_window_main = (DPHI_MIN < dphi_jpsi2_phi < DPHI_MAX and DY_MIN < dy_jpsi2_phi < DY_MAX)
+        in_window_alt = (DPHI_ALT_MIN < dphi_jpsi2_phi < DPHI_ALT_MAX and DY_MIN < dy_jpsi2_phi < DY_MAX)
+        in_window_low = (DPHI_LOW_MIN < dphi_jpsi2_phi < DPHI_LOW_MAX and DY_MIN < dy_jpsi2_phi < DY_MAX)
+        in_window_dyhi = (DPHI_MIN < dphi_jpsi2_phi < DPHI_MAX and DY_HIGH_MIN < dy_jpsi2_phi < DY_HIGH_MAX)
+
+        if not (in_window_main or in_window_alt or in_window_low or in_window_dyhi):
             continue
 
-        n_window += 1
-
-        histos['h2_dy_dphi_jpsi2_phi'].Fill(dy_jpsi2_phi, dphi_jpsi2_phi)
-        histos['h_jpsi1_pt'].Fill(jpsi1_4vec.Pt())
-        histos['h_jpsi1_eta'].Fill(jpsi1_4vec.Eta())
-        histos['h_jpsi1_phi'].Fill(jpsi1_4vec.Phi())
-        histos['h_jpsi2_pt'].Fill(jpsi2_4vec.Pt())
-        histos['h_jpsi2_eta'].Fill(jpsi2_4vec.Eta())
-        histos['h_jpsi2_phi'].Fill(jpsi2_4vec.Phi())
-        histos['h_phi_pt'].Fill(phi_4vec.Pt())
-        histos['h_phi_eta'].Fill(phi_4vec.Eta())
-        histos['h_phi_phi'].Fill(phi_4vec.Phi())
-
+        # Muon bookkeeping and validation (only when the event is in either window)
         try:
             mu_size = chain.muPx.size()
             if mu_size_min is None or mu_size < mu_size_min:
@@ -316,18 +422,10 @@ def process_file_batch(file_list, max_events, muon_id, tree_name):
                 mu_idx_max_seen = max_idx
             invalid_neg = any(idx < 0 for idx in idxs)
             invalid_ge = any(idx >= mu_size for idx in idxs)
-            if invalid_neg or invalid_ge:
-                n_mu_fill_fail += 1
-                if mu_size == 0:
-                    n_mu_size_zero += 1
-                if invalid_neg:
-                    n_mu_idx_neg += 1
-                if invalid_ge:
-                    n_mu_idx_ge_size += 1
-                if debug_fail_prints < 5:
-                    print(f"[DEBUG] Mu fill fail: idxs={idxs}, mu_size={mu_size}")
-                    debug_fail_prints += 1
-            else:
+            mu_valid = not (invalid_neg or invalid_ge)
+
+            mu1_vec = mu2_vec = mu3_vec = mu4_vec = None
+            if mu_valid:
                 mu1_vec = build_vec_from_pxpypz(chain.muPx.at(best_cand['jpsi1_mu1_idx']),
                                                  chain.muPy.at(best_cand['jpsi1_mu1_idx']),
                                                  chain.muPz.at(best_cand['jpsi1_mu1_idx']), MUON_MASS)
@@ -340,31 +438,110 @@ def process_file_batch(file_list, max_events, muon_id, tree_name):
                 mu4_vec = build_vec_from_pxpypz(chain.muPx.at(best_cand['jpsi2_mu2_idx']),
                                                  chain.muPy.at(best_cand['jpsi2_mu2_idx']),
                                                  chain.muPz.at(best_cand['jpsi2_mu2_idx']), MUON_MASS)
+            else:
+                if mu_size == 0:
+                    n_mu_size_zero += 1
+                if invalid_neg:
+                    n_mu_idx_neg += 1
+                if invalid_ge:
+                    n_mu_idx_ge_size += 1
+                if debug_fail_prints < 5:
+                    print(f"[DEBUG] Mu fill fail: idxs={idxs}, mu_size={mu_size}")
+                    debug_fail_prints += 1
 
-                histos['h_mu_jpsi1_mu1_pt'].Fill(mu1_vec.Pt())
-                histos['h_mu_jpsi1_mu1_eta'].Fill(mu1_vec.Eta())
-                histos['h_mu_jpsi1_mu1_phi'].Fill(mu1_vec.Phi())
-                histos['h_mu_jpsi1_mu2_pt'].Fill(mu2_vec.Pt())
-                histos['h_mu_jpsi1_mu2_eta'].Fill(mu2_vec.Eta())
-                histos['h_mu_jpsi1_mu2_phi'].Fill(mu2_vec.Phi())
-                histos['h_mu_jpsi2_mu1_pt'].Fill(mu3_vec.Pt())
-                histos['h_mu_jpsi2_mu1_eta'].Fill(mu3_vec.Eta())
-                histos['h_mu_jpsi2_mu1_phi'].Fill(mu3_vec.Phi())
-                histos['h_mu_jpsi2_mu2_pt'].Fill(mu4_vec.Pt())
-                histos['h_mu_jpsi2_mu2_eta'].Fill(mu4_vec.Eta())
-                histos['h_mu_jpsi2_mu2_phi'].Fill(mu4_vec.Phi())
-                n_mu_fill_ok += 1
         except Exception:
-            n_mu_fill_fail += 1
+            mu_valid = False
+            if debug_fail_prints < 5:
+                print("[DEBUG] Mu fill exception")
+                debug_fail_prints += 1
 
+        # Kaon 4-vectors
         k1_vec = build_vec_from_pxpypz(best_cand['phi_k1_px'], best_cand['phi_k1_py'], best_cand['phi_k1_pz'], KAON_MASS)
         k2_vec = build_vec_from_pxpypz(best_cand['phi_k2_px'], best_cand['phi_k2_py'], best_cand['phi_k2_pz'], KAON_MASS)
-        histos['h_k1_pt'].Fill(k1_vec.Pt())
-        histos['h_k1_eta'].Fill(k1_vec.Eta())
-        histos['h_k1_phi'].Fill(k1_vec.Phi())
-        histos['h_k2_pt'].Fill(k2_vec.Pt())
-        histos['h_k2_eta'].Fill(k2_vec.Eta())
-        histos['h_k2_phi'].Fill(k2_vec.Phi())
+
+        # Compute min DeltaR and |pT difference| between Jpsi2 muons and Phi kaons
+        # Also flag potential track misuse (muon reused as kaon) via tight geometric+pt match
+        min_dR = None
+        min_abs_dpt = None
+        track_misuse = False
+        if mu_valid:
+            combos = [(mu3_vec, k1_vec), (mu3_vec, k2_vec), (mu4_vec, k1_vec), (mu4_vec, k2_vec)]
+            for mu_vec, k_vec in combos:
+                deta = mu_vec.Eta() - k_vec.Eta()
+                dphi = delta_phi(mu_vec.Phi(), k_vec.Phi())
+                dr = math.sqrt(deta * deta + dphi * dphi)
+                abs_dpt = abs(mu_vec.Pt() - k_vec.Pt())
+                min_dR = dr if min_dR is None else min(min_dR, dr)
+                min_abs_dpt = abs_dpt if min_abs_dpt is None else min(min_abs_dpt, abs_dpt)
+                rel_dpt = abs_dpt / mu_vec.Pt() if mu_vec.Pt() > 0 else 1e9
+                if dr < TRACK_DR_MAX and rel_dpt < TRACK_RELPT_MAX:
+                    track_misuse = True
+
+        if track_misuse:
+            n_track_misuse += 1
+            continue
+
+        if in_window_main:
+            n_window += 1
+        if in_window_alt:
+            n_window_alt += 1
+        if in_window_low:
+            n_window_low += 1
+        if in_window_dyhi:
+            n_window_dyhi += 1
+
+        # Muon fill counters: count once per event that lands in either window
+        if mu_valid:
+            n_mu_fill_ok += 1
+        else:
+            n_mu_fill_fail += 1
+
+        # Helper to fill histograms for each window
+        def fill_window_histos(suffix):
+            histos[f'h2_dy_dphi_jpsi2_phi{suffix}'].Fill(dy_jpsi2_phi, dphi_jpsi2_phi)
+            histos[f'h_jpsi1_pt{suffix}'].Fill(jpsi1_4vec.Pt())
+            histos[f'h_jpsi1_eta{suffix}'].Fill(jpsi1_4vec.Eta())
+            histos[f'h_jpsi1_phi{suffix}'].Fill(jpsi1_4vec.Phi())
+            histos[f'h_jpsi2_pt{suffix}'].Fill(jpsi2_4vec.Pt())
+            histos[f'h_jpsi2_eta{suffix}'].Fill(jpsi2_4vec.Eta())
+            histos[f'h_jpsi2_phi{suffix}'].Fill(jpsi2_4vec.Phi())
+            histos[f'h_phi_pt{suffix}'].Fill(phi_4vec.Pt())
+            histos[f'h_phi_eta{suffix}'].Fill(phi_4vec.Eta())
+            histos[f'h_phi_phi{suffix}'].Fill(phi_4vec.Phi())
+
+            if mu_valid:
+                histos[f'h_mu_jpsi1_mu1_pt{suffix}'].Fill(mu1_vec.Pt())
+                histos[f'h_mu_jpsi1_mu1_eta{suffix}'].Fill(mu1_vec.Eta())
+                histos[f'h_mu_jpsi1_mu1_phi{suffix}'].Fill(mu1_vec.Phi())
+                histos[f'h_mu_jpsi1_mu2_pt{suffix}'].Fill(mu2_vec.Pt())
+                histos[f'h_mu_jpsi1_mu2_eta{suffix}'].Fill(mu2_vec.Eta())
+                histos[f'h_mu_jpsi1_mu2_phi{suffix}'].Fill(mu2_vec.Phi())
+                histos[f'h_mu_jpsi2_mu1_pt{suffix}'].Fill(mu3_vec.Pt())
+                histos[f'h_mu_jpsi2_mu1_eta{suffix}'].Fill(mu3_vec.Eta())
+                histos[f'h_mu_jpsi2_mu1_phi{suffix}'].Fill(mu3_vec.Phi())
+                histos[f'h_mu_jpsi2_mu2_pt{suffix}'].Fill(mu4_vec.Pt())
+                histos[f'h_mu_jpsi2_mu2_eta{suffix}'].Fill(mu4_vec.Eta())
+                histos[f'h_mu_jpsi2_mu2_phi{suffix}'].Fill(mu4_vec.Phi())
+                if min_dR is not None:
+                    histos[f'h_mu2k_min_dR{suffix}'].Fill(min_dR)
+                if min_abs_dpt is not None:
+                    histos[f'h_mu2k_min_abs_dpt{suffix}'].Fill(min_abs_dpt)
+
+            histos[f'h_k1_pt{suffix}'].Fill(k1_vec.Pt())
+            histos[f'h_k1_eta{suffix}'].Fill(k1_vec.Eta())
+            histos[f'h_k1_phi{suffix}'].Fill(k1_vec.Phi())
+            histos[f'h_k2_pt{suffix}'].Fill(k2_vec.Pt())
+            histos[f'h_k2_eta{suffix}'].Fill(k2_vec.Eta())
+            histos[f'h_k2_phi{suffix}'].Fill(k2_vec.Phi())
+
+        if in_window_main:
+            fill_window_histos('')
+        if in_window_alt:
+            fill_window_histos('_alt')
+        if in_window_low:
+            fill_window_histos('_low')
+        if in_window_dyhi:
+            fill_window_histos('_dyhi')
 
     fd, tmp_path = tempfile.mkstemp(suffix=".root", prefix="jjp_window_tmp_")
     os.close(fd)
@@ -373,8 +550,8 @@ def process_file_batch(file_list, max_events, muon_id, tree_name):
         h.Write()
     fout.Close()
 
-    return (tmp_path, n_to_process, n_window, n_has_cand, n_pass_baseline,
-            n_fail_mass, n_fail_pt, n_fail_vtx, n_fail_kpt, n_fail_mu,
+    return (tmp_path, n_to_process, n_window, n_window_alt, n_window_low, n_window_dyhi, n_has_cand, n_pass_baseline,
+            n_fail_mass, n_fail_pt, n_fail_vtx, n_fail_kpt, n_fail_mu, n_track_misuse,
             n_mu_fill_ok, n_mu_fill_fail, n_mu_size_zero,
             mu_size_min if mu_size_min is not None else 0,
             mu_size_max if mu_size_max is not None else 0,
@@ -421,21 +598,25 @@ def analyze_jjp_window(max_events=-1, muon_id='soft', input_dir=None, output_fil
         temp_files = [result[0]]
         total_processed = result[1]
         total_in_window = result[2]
-        total_has_cand = result[3]
-        total_pass_baseline = result[4]
-        total_fail_mass = result[5]
-        total_fail_pt = result[6]
-        total_fail_vtx = result[7]
-        total_fail_kpt = result[8]
-        total_fail_mu = result[9]
-        total_mu_fill_ok = result[10]
-        total_mu_fill_fail = result[11]
-        total_mu_size_zero = result[12]
-        total_mu_size_min = result[13]
-        total_mu_size_max = result[14]
-        total_mu_idx_max = result[15]
-        total_mu_idx_neg = result[16]
-        total_mu_idx_ge_size = result[17]
+        total_in_window_alt = result[3]
+        total_in_window_low = result[4]
+        total_in_window_dyhi = result[5]
+        total_has_cand = result[6]
+        total_pass_baseline = result[7]
+        total_fail_mass = result[8]
+        total_fail_pt = result[9]
+        total_fail_vtx = result[10]
+        total_fail_kpt = result[11]
+        total_fail_mu = result[12]
+        total_track_misuse = result[13]
+        total_mu_fill_ok = result[14]
+        total_mu_fill_fail = result[15]
+        total_mu_size_zero = result[16]
+        total_mu_size_min = result[17]
+        total_mu_size_max = result[18]
+        total_mu_idx_max = result[19]
+        total_mu_idx_neg = result[20]
+        total_mu_idx_ge_size = result[21]
     else:
         with multiprocessing.Pool(processes=len(batch_files)) as pool:
             results = pool.starmap(process_file_batch,
@@ -443,21 +624,25 @@ def analyze_jjp_window(max_events=-1, muon_id='soft', input_dir=None, output_fil
         temp_files = [r[0] for r in results]
         total_processed = sum(r[1] for r in results)
         total_in_window = sum(r[2] for r in results)
-        total_has_cand = sum(r[3] for r in results)
-        total_pass_baseline = sum(r[4] for r in results)
-        total_fail_mass = sum(r[5] for r in results)
-        total_fail_pt = sum(r[6] for r in results)
-        total_fail_vtx = sum(r[7] for r in results)
-        total_fail_kpt = sum(r[8] for r in results)
-        total_fail_mu = sum(r[9] for r in results)
-        total_mu_fill_ok = sum(r[10] for r in results)
-        total_mu_fill_fail = sum(r[11] for r in results)
-        total_mu_size_zero = sum(r[12] for r in results)
-        total_mu_size_min = min(r[13] for r in results if r[13] > 0) if results else 0
-        total_mu_size_max = max(r[14] for r in results) if results else 0
-        total_mu_idx_max = max(r[15] for r in results) if results else -1
-        total_mu_idx_neg = sum(r[16] for r in results)
-        total_mu_idx_ge_size = sum(r[17] for r in results)
+        total_in_window_alt = sum(r[3] for r in results)
+        total_in_window_low = sum(r[4] for r in results)
+        total_in_window_dyhi = sum(r[5] for r in results)
+        total_has_cand = sum(r[6] for r in results)
+        total_pass_baseline = sum(r[7] for r in results)
+        total_fail_mass = sum(r[8] for r in results)
+        total_fail_pt = sum(r[9] for r in results)
+        total_fail_vtx = sum(r[10] for r in results)
+        total_fail_kpt = sum(r[11] for r in results)
+        total_fail_mu = sum(r[12] for r in results)
+        total_track_misuse = sum(r[13] for r in results)
+        total_mu_fill_ok = sum(r[14] for r in results)
+        total_mu_fill_fail = sum(r[15] for r in results)
+        total_mu_size_zero = sum(r[16] for r in results)
+        total_mu_size_min = min(r[17] for r in results if r[17] > 0) if results else 0
+        total_mu_size_max = max(r[18] for r in results) if results else 0
+        total_mu_idx_max = max(r[19] for r in results) if results else -1
+        total_mu_idx_neg = sum(r[20] for r in results)
+        total_mu_idx_ge_size = sum(r[21] for r in results)
 
     histos = create_histograms()
     for tf in temp_files:
@@ -467,13 +652,24 @@ def analyze_jjp_window(max_events=-1, muon_id='soft', input_dir=None, output_fil
         fin.Close()
         os.remove(tf)
 
+    # Normalize all 1D histograms to unit area for shape comparison
+    for h in histos.values():
+        if isinstance(h, TH1F):
+            integral = h.Integral()
+            if integral > 0:
+                h.Scale(1.0 / integral)
+
     elapsed = time.time() - start_time
     n_to_process = total_processed if max_events < 0 else min(max_events, total_processed)
     print(f"[INFO] 处理事件总数: {total_processed}")
     print(f"[INFO] 有候选的事件数: {total_has_cand}")
     print(f"[INFO] 通过基线cuts的事件数: {total_pass_baseline}")
-    print(f"[INFO] 窗口内事件数: {total_in_window}")
+    print(f"[INFO] 窗口内事件数 (0.3<Δφ<0.7): {total_in_window}")
+    print(f"[INFO] 窗口内事件数 (0.7<Δφ<1.1): {total_in_window_alt}")
+    print(f"[INFO] 窗口内事件数 (0<Δφ<0.3): {total_in_window_low}")
+    print(f"[INFO] 窗口内事件数 (0.3<Δφ<0.7, 0.4<Δy<0.8): {total_in_window_dyhi}")
     print(f"[INFO] 失败统计: mass={total_fail_mass}, pt={total_fail_pt}, vtx={total_fail_vtx}, kpt={total_fail_kpt}, muID={total_fail_mu}")
+    print(f"[INFO] 径迹误用(μ↔K)剔除事件数: {total_track_misuse}")
     print(f"[INFO] Mu填充: ok={total_mu_fill_ok}, fail={total_mu_fill_fail}, neg_idx={total_mu_idx_neg}, ge_size={total_mu_idx_ge_size}")
     print(f"[INFO] Mu尺寸: size(min,max)=({total_mu_size_min},{total_mu_size_max}), idx_max={total_mu_idx_max}, size0={total_mu_size_zero}")
     rate = 0 if elapsed <= 0 else total_processed / elapsed
