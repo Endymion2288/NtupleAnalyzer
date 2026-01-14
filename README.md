@@ -9,9 +9,20 @@ NtupleAnalyzer/
 ├── analyze_ntuple_JJP.py    # JJP分析主程序
 ├── analyze_ntuple_JUP.py    # JUP分析主程序
 ├── plot_ntuple_results.py   # 绘图脚本
-├── run_jjp_analysis.sh      # JJP运行脚本
-├── run_jup_analysis.sh      # JUP运行脚本
+├── run_jjp_analysis.sh      # JJP Data运行脚本
+├── run_jup_analysis.sh      # JUP Data运行脚本
+├── run_jjp_mc_ntuple.sh     # JJP MC运行脚本
+├── run_jup_mc_ntuple.sh     # JUP MC运行脚本
 ├── run_all.sh               # 同时运行JJP和JUP
+├── check_proxy.sh           # VOMS代理检查脚本
+├── condor/                  # HTCondor配置目录
+│   ├── submit.sh            # 作业提交管理脚本
+│   ├── run_wrapper.sh       # HTCondor作业包装脚本
+│   ├── jup_mc.sub           # JUP MC提交配置
+│   ├── jjp_mc.sub           # JJP MC提交配置
+│   ├── jup_data.sub         # JUP Data提交配置
+│   ├── jjp_data.sub         # JJP Data提交配置
+│   └── logs/                # 作业日志目录
 ├── output/                  # 输出目录
 │   ├── jjp_ntuple_correlations.root
 │   ├── jup_ntuple_correlations.root
@@ -160,3 +171,152 @@ python3 plot_ntuple_results.py -i output/jup_ntuple_correlations.root -o plots_J
 - 事件选择参考: `NPSExtraction/sPlotFit/run_mass_fit_JJP.py`, `run_mass_fit_JUP.py`
 - 角度关联计算参考: `JJPMCAnalyzer/analyze_gen_correlations.py`
 - 绘图风格参考: `JJPMCAnalyzer/plot_results.py`
+
+---
+
+## HTCondor 批量作业提交
+
+### 准备工作
+
+1. **设置VOMS代理** (用于xrootd访问T2_CN_Beijing等远程存储):
+```bash
+# 初始化代理 (有效期7天)
+voms-proxy-init --voms cms --valid 168:00
+
+# 复制到AFS供HTCondor使用
+cp /tmp/x509up_u$(id -u) /afs/cern.ch/user/x/xcheng/
+
+# 检查代理状态
+./check_proxy.sh
+```
+
+2. **进入condor目录**:
+```bash
+cd condor/
+```
+
+### 使用submit.sh提交作业
+
+`submit.sh` 是一个便捷的作业提交管理脚本：
+
+```bash
+# 查看帮助
+./submit.sh --help
+
+# 提交JUP MC分析 (默认DPS_1模式)
+./submit.sh jup_mc
+
+# 提交JUP MC特定模式
+./submit.sh jup_mc --mode SPS
+./submit.sh jup_mc --mode DPS_2 --jobs 16
+
+# 提交所有JUP MC模式
+./submit.sh jup_mc --mode all
+
+# 提交JJP MC分析
+./submit.sh jjp_mc --mode DPS
+./submit.sh jjp_mc --mode TPS
+
+# 提交数据分析
+./submit.sh jup_data
+./submit.sh jjp_data --max-events 100000
+
+# 查看作业状态
+./submit.sh --status
+
+# 查看作业历史
+./submit.sh --history
+
+# 清理日志文件
+./submit.sh --clean
+
+# 试运行 (不实际提交)
+./submit.sh jup_mc --mode DPS_1 --dry-run
+```
+
+### 直接使用condor_submit
+
+也可以直接使用 `condor_submit` 命令：
+
+```bash
+# 基本提交
+condor_submit jup_mc.sub
+
+# 覆盖默认参数
+condor_submit jup_mc.sub MODE=DPS_2 JOBS=16
+
+# 提交JJP MC
+condor_submit jjp_mc.sub MODE=TPS
+
+# 提交数据分析
+condor_submit jup_data.sub MAX_EVENTS=100000
+condor_submit jjp_data.sub MUON_ID=tight
+```
+
+### 作业配置参数
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `MODE` | MC模式 (JUP: SPS/DPS_1/DPS_2/DPS_3/TPS, JJP: DPS/TPS) | DPS_1 / DPS |
+| `JOBS` | 并行进程数 | 8 |
+| `MAX_EVENTS` | 最大处理事件数 (-1=全部) | -1 |
+| `MUON_ID` | JJP muon ID | soft |
+| `JPSI_MUON_ID` | JUP J/psi muon ID | soft |
+| `UPS_MUON_ID` | JUP Upsilon muon ID | tight |
+
+### 资源配置
+
+默认资源配置 (可在.sub文件中修改):
+
+| 资源 | MC作业 | 数据作业 |
+|------|--------|----------|
+| 内存 | 48 GB | 64 GB |
+| CPU核心 | 8 | 16 |
+| 磁盘 | 10 GB | 20 GB |
+| 时间限制 | workday (8h) | workday (8h) |
+
+### 作业管理
+
+```bash
+# 查看当前作业
+condor_q
+
+# 查看详细信息
+condor_q -long <job_id>
+
+# 取消作业
+condor_rm <job_id>
+
+# 取消所有作业
+condor_rm $(whoami)
+
+# 查看作业日志
+tail -f condor/logs/jup_mc/jup_mc_DPS_1_*.out
+
+# 检查错误
+cat condor/logs/jup_mc/jup_mc_DPS_1_*.err
+```
+
+### Job Flavour (时间限制)
+
+| Flavour | 最大运行时间 |
+|---------|-------------|
+| espresso | 20 分钟 |
+| microcentury | 1 小时 |
+| longlunch | 2 小时 |
+| workday | 8 小时 |
+| tomorrow | 1 天 |
+| testmatch | 3 天 |
+| nextweek | 1 周 |
+
+修改时间限制:
+```bash
+./submit.sh jup_mc --mode all --flavor tomorrow
+```
+
+### 输出文件
+
+作业完成后，输出文件位于:
+- ROOT文件: `output/jup_mc_<MODE>_correlations.root`
+- 图像: `output/plots_JUP_MC_<MODE>/`
+- 日志: `condor/logs/<analysis_type>/`
