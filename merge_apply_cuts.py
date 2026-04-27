@@ -75,7 +75,7 @@ def build_best_index_expr(schema_key: str) -> str:
     if schema_key == "JUP_data":
         return (
             "BestCandIndexJUP("
-            "Jpsi_mass, Jpsi_pt, Jpsi_eta, Jpsi_mu_1_Idx, Jpsi_mu_2_Idx, "
+            "Jpsi_1_mass, Jpsi_1_pt, Jpsi_1_eta, Jpsi_1_mu_1_Idx, Jpsi_1_mu_2_Idx, "
             "Ups_mass, Ups_pt, Ups_eta, Ups_mu_1_Idx, Ups_mu_2_Idx, "
             "Phi_mass, Phi_pt, Phi_eta, Phi_K_1_pt, Phi_K_1_eta, Phi_K_2_pt, Phi_K_2_eta, "
             "muPx, muPy, muPz, jpsi_muon_id_mask, ups_muon_id_mask)"

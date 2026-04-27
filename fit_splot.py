@@ -97,9 +97,9 @@ def build_ups_signal(obs, mc_only_1s: bool = False):
     sigma_2s = ROOT.RooFormulaVar("sigma_Ups_2S", "@0*@1/@2", ROOT.RooArgList(sigma_1s, mean_2s, mean_1s))
     sigma_3s = ROOT.RooFormulaVar("sigma_Ups_3S", "@0*@1/@2", ROOT.RooArgList(sigma_1s, mean_3s, mean_1s))
     alpha_l = ROOT.RooRealVar("alphaL_Ups", "alphaL_Ups", 2.5, 0.1, 10.0)
-    n_l = ROOT.RooRealVar("nL_Ups", "nL_Ups", 3.0, 1.0, 100.0)
+    n_l = ROOT.RooConstVar("nL_Ups", "nL_Ups", 5.0)
     alpha_r = ROOT.RooRealVar("alphaR_Ups", "alphaR_Ups", 2.5, 0.1, 10.0)
-    n_r = ROOT.RooRealVar("nR_Ups", "nR_Ups", 3.0, 1.0, 100.0)
+    n_r = ROOT.RooConstVar("nR_Ups", "nR_Ups", 5.0)
 
     dscb_1s = ROOT.RooCrystalBall("dscb_Ups_1S", "dscb_Ups_1S", obs, mean_1s, sigma_1s, alpha_l, n_l, alpha_r, n_r)
 

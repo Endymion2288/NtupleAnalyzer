@@ -633,7 +633,7 @@ DATASET_SCHEMAS: Dict[Tuple[str, str], DatasetSchema] = {
         channel="JUP",
         dataset="data",
         best_index_kind="JUP_DATA",
-        selected_branch_map=_jup_selected_branch_map("Jpsi"),
+        selected_branch_map=_jup_selected_branch_map("Jpsi_1"),
         selected_muon_specs=(
             ("Jpsi_mu_1_Idx", "sel_Jpsi_mu1"),
             ("Jpsi_mu_2_Idx", "sel_Jpsi_mu2"),
