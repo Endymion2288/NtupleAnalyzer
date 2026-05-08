@@ -30,22 +30,22 @@ JUP_REFACTOR_PREFIX = "crab3_JpsiUpsPhi_refactor"
 JUP_SUBMIT_PREFIX = "2604"
 
 MC_BASE = "/eos/ihep/cms/store/user/xcheng/MC_Production_v2/output"
-MC_SAMPLE_DIRS = {
+MC_SAMPLE_PATHS = {
     "JJP": {
-        "SPS": "JJP_SPS",
-        "DPS": "JJP_DPS2",
-        "DPS1": "JJP_DPS1",
-        "DPS_1": "JJP_DPS1",
-        "DPS2": "JJP_DPS2",
-        "DPS_2": "JJP_DPS2",
-        "TPS": "JJP_TPS",
+        "SPS": os.path.join(MC_BASE, "JJP_SPS"),
+        "DPS": os.path.join(MC_BASE, "JJP_DPS2"),
+        "DPS1": "/eos/ihep/cms/store/user/xcheng/MC_Production_v3/output/JJP_DPS1",
+        "DPS_1": "/eos/ihep/cms/store/user/xcheng/MC_Production_v3/output/JJP_DPS1",
+        "DPS2": os.path.join(MC_BASE, "JJP_DPS2"),
+        "DPS_2": os.path.join(MC_BASE, "JJP_DPS2"),
+        "TPS": os.path.join(MC_BASE, "JJP_TPS"),
     },
     "JUP": {
-        "SPS": "JUP_SPS",
-        "DPS_1": "JUP_DPS1",
-        "DPS_2": "JUP_DPS2",
-        "DPS_3": "JUP_DPS3",
-        "TPS": "JUP_TPS",
+        "SPS": os.path.join(MC_BASE, "JUP_SPS"),
+        "DPS_1": os.path.join(MC_BASE, "JUP_DPS1"),
+        "DPS_2": os.path.join(MC_BASE, "JUP_DPS2"),
+        "DPS_3": os.path.join(MC_BASE, "JUP_DPS3"),
+        "TPS": os.path.join(MC_BASE, "JUP_TPS"),
     },
 }
 
@@ -292,7 +292,7 @@ def normalize_sample(channel: str, sample: str | None) -> str | None:
     if sample is None:
         return None
     sample_up = sample.upper().replace("DPS1", "DPS_1").replace("DPS2", "DPS_2").replace("DPS3", "DPS_3")
-    valid = MC_SAMPLE_DIRS[channel]
+    valid = MC_SAMPLE_PATHS[channel]
     if sample_up not in valid:
         raise ValueError(f"Unsupported sample for {channel}: {sample}")
     return sample_up
@@ -303,7 +303,7 @@ def default_input_dir(channel: str, dataset: str, sample: str | None = None) -> 
         return DATA_PATHS[channel]
     if sample is None:
         raise ValueError("MC input requires --sample")
-    return os.path.join(MC_BASE, MC_SAMPLE_DIRS[channel][sample])
+    return MC_SAMPLE_PATHS[channel][sample]
 
 
 def make_tag(channel: str, dataset: str, sample: str | None = None) -> str:
@@ -394,15 +394,15 @@ def discover_root_files(input_path: str, max_files: int = -1) -> List[str]:
     elif resolved.startswith("root://"):
         stripped = resolved[len("root://") :]
         host, remote_path = stripped.split("/", 1)
-        remote_path = "/" + remote_path
+        remote_path = "/" + remote_path.lstrip("/")
         cmd = ["xrdfs", host, "ls", "-R", remote_path]
         env = os.environ.copy()
         if "X509_USER_PROXY" not in env and os.path.exists(DEFAULT_PROXY):
             env["X509_USER_PROXY"] = DEFAULT_PROXY
         result = subprocess.run(cmd, capture_output=True, text=True, check=True, env=env)
-        files = [f"root://{host}{line.strip()}" for line in result.stdout.splitlines() if line.strip().endswith("output_ntuple.root")]
+        files = [f"root://{host}//{line.strip().lstrip('/')}" for line in result.stdout.splitlines() if line.strip().endswith("output_ntuple.root")]
         if not files:
-            files = [f"root://{host}{line.strip()}" for line in result.stdout.splitlines() if line.strip().endswith(".root")]
+            files = [f"root://{host}//{line.strip().lstrip('/')}" for line in result.stdout.splitlines() if line.strip().endswith(".root")]
     else:
         files = _discover_jjp_refactor_data_files(resolved)
         if not files:

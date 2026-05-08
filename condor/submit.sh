@@ -9,6 +9,7 @@
 #   ./submit.sh jup_mc                       # Submit JUP MC (DPS_1)
 #   ./submit.sh jup_mc --mode SPS            # Submit JUP MC with mode
 #   ./submit.sh jup_mc --mode all            # Submit all JUP MC modes
+#   ./submit.sh jjp_mc                       # Submit JJP MC (DPS_1)
 #   ./submit.sh jjp_data                     # Submit JJP data analysis
 #   ./submit.sh --status                     # Check job status
 #   ./submit.sh --clean                      # Clean log files
@@ -50,7 +51,7 @@ ${YELLOW}Analysis Types:${NC}
     jjp_data    J/psi + J/psi + Phi data analysis
 
 ${YELLOW}Options:${NC}
-    -m, --mode MODE       MC mode (JUP: SPS/DPS_1/DPS_2/DPS_3/TPS, JJP: DPS/TPS)
+    -m, --mode MODE       MC mode (JUP: SPS/DPS_1/DPS_2/DPS_3/TPS, JJP: DPS_1/DPS_2/TPS)
                           Use 'all' to submit all modes
     -j, --jobs N          Number of parallel jobs (default: 8)
     -n, --max-events N    Maximum events to process (-1=all)
@@ -70,6 +71,7 @@ ${YELLOW}Examples:${NC}
     $0 jup_mc                           # Submit JUP MC DPS_1
     $0 jup_mc -m DPS_2 -j 16            # Submit JUP MC DPS_2 with 16 cores
     $0 jup_mc -m all                    # Submit all JUP MC modes
+    $0 jjp_mc -m DPS_1 -j 16            # Submit JJP MC DPS_1 with 16 cores
     $0 jjp_data -n 100000               # Submit JJP data (100k events)
     $0 --status                         # Check job status
 
@@ -200,22 +202,12 @@ submit_job() {
     # Create log directories
     mkdir -p logs/jup_mc logs/jjp_mc logs/jup_data logs/jjp_data
     
-    # Build condor_submit arguments
-    local SUBMIT_APPEND_ARGS=()
-    
-    [ -n "$JOBS" ] && SUBMIT_APPEND_ARGS+=("-append" "JOBS = $JOBS")
-    [ -n "$MAX_EVENTS" ] && SUBMIT_APPEND_ARGS+=("-append" "MAX_EVENTS = $MAX_EVENTS")
-    [ -n "$MUON_ID" ] && SUBMIT_APPEND_ARGS+=("-append" "MUON_ID = $MUON_ID")
-    [ -n "$JPSI_MUON_ID" ] && SUBMIT_APPEND_ARGS+=("-append" "JPSI_MUON_ID = $JPSI_MUON_ID")
-    [ -n "$UPS_MUON_ID" ] && SUBMIT_APPEND_ARGS+=("-append" "UPS_MUON_ID = $UPS_MUON_ID")
-    [ -n "$FLAVOR" ] && SUBMIT_APPEND_ARGS+=("-append" "+JobFlavour = \"$FLAVOR\"")
-    
     # Handle 'all' mode
     local MODES_TO_SUBMIT=()
     if [ "${MODE,,}" = "all" ]; then
         case "$ANALYSIS_TYPE" in
             jup_mc) MODES_TO_SUBMIT=(SPS DPS_1 DPS_2 DPS_3 TPS);;
-            jjp_mc) MODES_TO_SUBMIT=(DPS TPS);;
+            jjp_mc) MODES_TO_SUBMIT=(DPS_1 DPS_2 TPS);;
             *) MODES_TO_SUBMIT=("");;
         esac
     elif [ -n "$MODE" ]; then
@@ -226,10 +218,58 @@ submit_job() {
     
     # Submit jobs
     for m in "${MODES_TO_SUBMIT[@]}"; do
-        local CMD_PARTS=("condor_submit")
-        [ -n "$m" ] && CMD_PARTS+=("-append" "MODE = $m")
-        CMD_PARTS+=("${SUBMIT_APPEND_ARGS[@]}")
-        CMD_PARTS+=("$SUB_FILE")
+        local EFFECTIVE_MODE="$m"
+        local EFFECTIVE_JOBS="$JOBS"
+        local EFFECTIVE_MAX_EVENTS="$MAX_EVENTS"
+        local EFFECTIVE_MUON_ID="$MUON_ID"
+        local EFFECTIVE_JPSI_MUON_ID="$JPSI_MUON_ID"
+        local EFFECTIVE_UPS_MUON_ID="$UPS_MUON_ID"
+        local EFFECTIVE_MEMORY_MB=""
+        local TMP_SUB_FILE=""
+
+        case "$ANALYSIS_TYPE" in
+            jjp_mc)
+                [ -n "$EFFECTIVE_MODE" ] || EFFECTIVE_MODE="DPS_1"
+                [ -n "$EFFECTIVE_JOBS" ] || EFFECTIVE_JOBS="8"
+                [ -n "$EFFECTIVE_MAX_EVENTS" ] || EFFECTIVE_MAX_EVENTS="-1"
+                [ -n "$EFFECTIVE_MUON_ID" ] || EFFECTIVE_MUON_ID="soft"
+                ;;
+            jup_mc)
+                [ -n "$EFFECTIVE_MODE" ] || EFFECTIVE_MODE="DPS_1"
+                [ -n "$EFFECTIVE_JOBS" ] || EFFECTIVE_JOBS="8"
+                [ -n "$EFFECTIVE_MAX_EVENTS" ] || EFFECTIVE_MAX_EVENTS="-1"
+                [ -n "$EFFECTIVE_JPSI_MUON_ID" ] || EFFECTIVE_JPSI_MUON_ID="soft"
+                [ -n "$EFFECTIVE_UPS_MUON_ID" ] || EFFECTIVE_UPS_MUON_ID="soft"
+                ;;
+            jjp_data)
+                [ -n "$EFFECTIVE_JOBS" ] || EFFECTIVE_JOBS="16"
+                [ -n "$EFFECTIVE_MAX_EVENTS" ] || EFFECTIVE_MAX_EVENTS="-1"
+                [ -n "$EFFECTIVE_MUON_ID" ] || EFFECTIVE_MUON_ID="soft"
+                ;;
+            jup_data)
+                [ -n "$EFFECTIVE_JOBS" ] || EFFECTIVE_JOBS="16"
+                [ -n "$EFFECTIVE_MAX_EVENTS" ] || EFFECTIVE_MAX_EVENTS="-1"
+                [ -n "$EFFECTIVE_JPSI_MUON_ID" ] || EFFECTIVE_JPSI_MUON_ID="soft"
+                [ -n "$EFFECTIVE_UPS_MUON_ID" ] || EFFECTIVE_UPS_MUON_ID="soft"
+                ;;
+        esac
+
+        EFFECTIVE_MEMORY_MB="$((EFFECTIVE_JOBS * 3000))"
+
+        TMP_SUB_FILE="$(mktemp "/tmp/${ANALYSIS_TYPE}.XXXXXX.sub")"
+        cp "$SUB_FILE" "$TMP_SUB_FILE"
+
+        [ -n "$EFFECTIVE_MODE" ] && sed -i "s/^MODE = .*/MODE = $EFFECTIVE_MODE/" "$TMP_SUB_FILE"
+        sed -i "s/^JOBS = .*/JOBS = $EFFECTIVE_JOBS/" "$TMP_SUB_FILE"
+        sed -i "s/^MAX_EVENTS = .*/MAX_EVENTS = $EFFECTIVE_MAX_EVENTS/" "$TMP_SUB_FILE"
+        sed -i "s/^request_cpus = .*/request_cpus = $EFFECTIVE_JOBS/" "$TMP_SUB_FILE"
+        sed -i "s/^request_memory = .*/request_memory = $EFFECTIVE_MEMORY_MB/" "$TMP_SUB_FILE"
+        [ -n "$EFFECTIVE_MUON_ID" ] && sed -i "s/^MUON_ID = .*/MUON_ID = $EFFECTIVE_MUON_ID/" "$TMP_SUB_FILE"
+        [ -n "$EFFECTIVE_JPSI_MUON_ID" ] && sed -i "s/^JPSI_MUON_ID = .*/JPSI_MUON_ID = $EFFECTIVE_JPSI_MUON_ID/" "$TMP_SUB_FILE"
+        [ -n "$EFFECTIVE_UPS_MUON_ID" ] && sed -i "s/^UPS_MUON_ID = .*/UPS_MUON_ID = $EFFECTIVE_UPS_MUON_ID/" "$TMP_SUB_FILE"
+        [ -n "$FLAVOR" ] && sed -i "s/^+JobFlavour = .*/+JobFlavour = \"$FLAVOR\"/" "$TMP_SUB_FILE"
+
+        local CMD_PARTS=("condor_submit" "$TMP_SUB_FILE")
         
         local CMD="${CMD_PARTS[*]}"
         
@@ -243,6 +283,8 @@ submit_job() {
             "${CMD_PARTS[@]}"
             msg_ok "Job submitted"
         fi
+
+        rm -f "$TMP_SUB_FILE"
     done
 }
 

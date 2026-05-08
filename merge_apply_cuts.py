@@ -118,7 +118,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Merge ntuples and apply assocPV cuts")
     parser.add_argument("--channel", required=True, choices=["JJP", "JUP", "jjp", "jup"], help="Physics channel")
     parser.add_argument("--dataset", default="data", choices=["data", "mc"], help="Input dataset type")
-    parser.add_argument("--sample", default=None, help="MC sample tag (JJP: DPS/TPS, JUP: SPS/DPS_1/DPS_2/DPS_3/TPS)")
+    parser.add_argument("--sample", default=None, help="MC sample tag (JJP: DPS_1/DPS_2/TPS, JUP: SPS/DPS_1/DPS_2/DPS_3/TPS)")
     parser.add_argument("-i", "--input-dir", default=None, help="Override input directory or ROOT file")
     parser.add_argument("-o", "--output", default=None, help="Output ROOT file")
     parser.add_argument("-j", "--jobs", type=int, default=8, help="RDataFrame thread count")

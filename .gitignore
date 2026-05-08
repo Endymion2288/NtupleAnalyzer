@@ -6,3 +6,5 @@ __pycache__/
 /condor/logs/
 .codex
 notebook_outputs/
+xcheng.cc
+AGENTS.md
