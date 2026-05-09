@@ -19,12 +19,16 @@ DEFAULT_PROXY = "/afs/cern.ch/user/x/xcheng/x509up_u180107"
 
 DATA_PATHS = {
     "JJP": "/eos/user/c/chiw/JpsiJpsiPhi/rootNtuple",
+    "JJU": "/eos/user/c/chiw/JpsiJpsiUps/rootNtuple",
     "JUP": "/eos/user/c/chiw/JpsiUpsPhi/rootNtuple",
 }
 
 JJP_DATASET_DIRS = tuple(f"ParkingDoubleMuonLowMass{i}" for i in range(8))
 JJP_REFACTOR_PREFIX = "crab3_refactor"
 JJP_SUBMIT_PREFIX = "260411"
+JJU_DATASET_DIRS = tuple(f"ParkingDoubleMuonLowMass{i}" for i in range(8))
+JJU_REFACTOR_PREFIX = "crab3_refactor_JpsiJpsiUps"
+JJU_SUBMIT_PREFIX = "2604"
 JUP_DATASET_DIRS = tuple(f"ParkingDoubleMuonLowMass{i}" for i in range(8))
 JUP_REFACTOR_PREFIX = "crab3_JpsiUpsPhi_refactor"
 JUP_SUBMIT_PREFIX = "2604"
@@ -175,6 +179,88 @@ CHANNEL_CONFIGS: Dict[str, ChannelConfig] = {
             ("sel_Phi_K_1", "sel_Phi_K_1"),
             ("sel_Phi_K_2", "sel_Phi_K_2"),
         ),
+    ),
+    "JJU": ChannelConfig(
+        channel="JJU",
+        mass_branches=("sel_Jpsi_1_mass", "sel_Jpsi_2_mass", "sel_Ups_mass"),
+        fit_branches=("sel_Jpsi_1_mass", "sel_Jpsi_2_mass", "sel_Ups_mass"),
+        pair_specs=(
+            ("jpsi1_jpsi2", "sel_Jpsi_1", "sel_Jpsi_2"),
+            ("jpsi1_ups", "sel_Jpsi_1", "sel_Ups"),
+            ("jpsi2_ups", "sel_Jpsi_2", "sel_Ups"),
+        ),
+        selected_candidate_branches=(
+            "Jpsi_1_mass",
+            "Jpsi_1_massErr",
+            "Jpsi_1_massDiff",
+            "Jpsi_1_ctau",
+            "Jpsi_1_ctauErr",
+            "Jpsi_1_Chi2",
+            "Jpsi_1_ndof",
+            "Jpsi_1_VtxProb",
+            "Jpsi_1_px",
+            "Jpsi_1_py",
+            "Jpsi_1_pz",
+            "Jpsi_1_phi",
+            "Jpsi_1_eta",
+            "Jpsi_1_pt",
+            "Jpsi_1_mu_1_Idx",
+            "Jpsi_1_mu_2_Idx",
+            "Jpsi_2_mass",
+            "Jpsi_2_massErr",
+            "Jpsi_2_massDiff",
+            "Jpsi_2_ctau",
+            "Jpsi_2_ctauErr",
+            "Jpsi_2_Chi2",
+            "Jpsi_2_ndof",
+            "Jpsi_2_VtxProb",
+            "Jpsi_2_px",
+            "Jpsi_2_py",
+            "Jpsi_2_pz",
+            "Jpsi_2_phi",
+            "Jpsi_2_eta",
+            "Jpsi_2_pt",
+            "Jpsi_2_mu_1_Idx",
+            "Jpsi_2_mu_2_Idx",
+            "Ups_mass",
+            "Ups_massErr",
+            "Ups_massDiff",
+            "Ups_ctau",
+            "Ups_ctauErr",
+            "Ups_Chi2",
+            "Ups_ndof",
+            "Ups_VtxProb",
+            "Ups_px",
+            "Ups_py",
+            "Ups_pz",
+            "Ups_phi",
+            "Ups_eta",
+            "Ups_pt",
+            "Ups_mu_1_Idx",
+            "Ups_mu_2_Idx",
+            "Pri_mass",
+            "Pri_massErr",
+            "Pri_ctau",
+            "Pri_ctauErr",
+            "Pri_Chi2",
+            "Pri_ndof",
+            "Pri_VtxProb",
+            "Pri_px",
+            "Pri_py",
+            "Pri_pz",
+            "Pri_phi",
+            "Pri_eta",
+            "Pri_pt",
+        ),
+        selected_muon_specs=(
+            ("sel_Jpsi_1_mu_1_Idx", "sel_Jpsi1_mu1"),
+            ("sel_Jpsi_1_mu_2_Idx", "sel_Jpsi1_mu2"),
+            ("sel_Jpsi_2_mu_1_Idx", "sel_Jpsi2_mu1"),
+            ("sel_Jpsi_2_mu_2_Idx", "sel_Jpsi2_mu2"),
+            ("sel_Ups_mu_1_Idx", "sel_Ups_mu1"),
+            ("sel_Ups_mu_2_Idx", "sel_Ups_mu2"),
+        ),
+        selected_kaon_specs=(),
     ),
     "JUP": ChannelConfig(
         channel="JUP",
@@ -347,18 +433,31 @@ def to_xrootd_if_needed(path: str) -> str:
 
 
 def _discover_jjp_refactor_data_files(input_path: str) -> List[str]:
+    return _discover_refactor_data_files(input_path, JJP_DATASET_DIRS, JJP_REFACTOR_PREFIX, JJP_SUBMIT_PREFIX)
+
+
+def _discover_jju_refactor_data_files(input_path: str) -> List[str]:
+    return _discover_refactor_data_files(input_path, JJU_DATASET_DIRS, JJU_REFACTOR_PREFIX, JJU_SUBMIT_PREFIX)
+
+
+def _discover_refactor_data_files(
+    input_path: str,
+    dataset_dirs: Sequence[str],
+    task_prefix: str,
+    submit_prefix: str,
+) -> List[str]:
     files: List[str] = []
-    for dataset_dir in JJP_DATASET_DIRS:
+    for dataset_dir in dataset_dirs:
         base_dir = os.path.join(input_path, dataset_dir)
         if not os.path.isdir(base_dir):
             continue
 
-        task_dirs = sorted(glob.glob(os.path.join(base_dir, f"{JJP_REFACTOR_PREFIX}*")))
+        task_dirs = sorted(glob.glob(os.path.join(base_dir, f"{task_prefix}*")))
         for task_dir in task_dirs:
             if not os.path.isdir(task_dir):
                 continue
 
-            submit_dirs = sorted(glob.glob(os.path.join(task_dir, f"{JJP_SUBMIT_PREFIX}*")))
+            submit_dirs = sorted(glob.glob(os.path.join(task_dir, f"{submit_prefix}*")))
             for submit_dir in submit_dirs:
                 if not os.path.isdir(submit_dir):
                     continue
@@ -367,23 +466,7 @@ def _discover_jjp_refactor_data_files(input_path: str) -> List[str]:
 
 
 def _discover_jup_refactor_data_files(input_path: str) -> List[str]:
-    files: List[str] = []
-    for dataset_dir in JUP_DATASET_DIRS:
-        base_dir = os.path.join(input_path, dataset_dir)
-        if not os.path.isdir(base_dir):
-            continue
-
-        task_dirs = sorted(glob.glob(os.path.join(base_dir, f"{JUP_REFACTOR_PREFIX}*")))
-        for task_dir in task_dirs:
-            if not os.path.isdir(task_dir):
-                continue
-
-            submit_dirs = sorted(glob.glob(os.path.join(task_dir, f"{JUP_SUBMIT_PREFIX}*")))
-            for submit_dir in submit_dirs:
-                if not os.path.isdir(submit_dir):
-                    continue
-                files.extend(sorted(glob.glob(os.path.join(submit_dir, "**", "*.root"), recursive=True)))
-    return files
+    return _discover_refactor_data_files(input_path, JUP_DATASET_DIRS, JUP_REFACTOR_PREFIX, JUP_SUBMIT_PREFIX)
 
 
 def discover_root_files(input_path: str, max_files: int = -1) -> List[str]:
@@ -405,6 +488,8 @@ def discover_root_files(input_path: str, max_files: int = -1) -> List[str]:
             files = [f"root://{host}//{line.strip().lstrip('/')}" for line in result.stdout.splitlines() if line.strip().endswith(".root")]
     else:
         files = _discover_jjp_refactor_data_files(resolved)
+        if not files:
+            files = _discover_jju_refactor_data_files(resolved)
         if not files:
             files = _discover_jup_refactor_data_files(resolved)
         if not files:
@@ -599,6 +684,73 @@ def _jup_selected_branch_map(input_prefix: str) -> Tuple[Tuple[str, str], ...]:
     return tuple(mapping)
 
 
+def _jju_selected_branch_map() -> Tuple[Tuple[str, str], ...]:
+    names = [
+        "Jpsi_1_mass",
+        "Jpsi_1_massErr",
+        "Jpsi_1_massDiff",
+        "Jpsi_1_ctau",
+        "Jpsi_1_ctauErr",
+        "Jpsi_1_Chi2",
+        "Jpsi_1_ndof",
+        "Jpsi_1_VtxProb",
+        "Jpsi_1_px",
+        "Jpsi_1_py",
+        "Jpsi_1_pz",
+        "Jpsi_1_phi",
+        "Jpsi_1_eta",
+        "Jpsi_1_pt",
+        "Jpsi_1_mu_1_Idx",
+        "Jpsi_1_mu_2_Idx",
+        "Jpsi_2_mass",
+        "Jpsi_2_massErr",
+        "Jpsi_2_massDiff",
+        "Jpsi_2_ctau",
+        "Jpsi_2_ctauErr",
+        "Jpsi_2_Chi2",
+        "Jpsi_2_ndof",
+        "Jpsi_2_VtxProb",
+        "Jpsi_2_px",
+        "Jpsi_2_py",
+        "Jpsi_2_pz",
+        "Jpsi_2_phi",
+        "Jpsi_2_eta",
+        "Jpsi_2_pt",
+        "Jpsi_2_mu_1_Idx",
+        "Jpsi_2_mu_2_Idx",
+        "Ups_mass",
+        "Ups_massErr",
+        "Ups_massDiff",
+        "Ups_ctau",
+        "Ups_ctauErr",
+        "Ups_Chi2",
+        "Ups_ndof",
+        "Ups_VtxProb",
+        "Ups_px",
+        "Ups_py",
+        "Ups_pz",
+        "Ups_phi",
+        "Ups_eta",
+        "Ups_pt",
+        "Ups_mu_1_Idx",
+        "Ups_mu_2_Idx",
+        "Pri_mass",
+        "Pri_massErr",
+        "Pri_ctau",
+        "Pri_ctauErr",
+        "Pri_Chi2",
+        "Pri_ndof",
+        "Pri_VtxProb",
+        "Pri_px",
+        "Pri_py",
+        "Pri_pz",
+        "Pri_phi",
+        "Pri_eta",
+        "Pri_pt",
+    ]
+    return tuple((name, name) for name in names)
+
+
 DATASET_SCHEMAS: Dict[Tuple[str, str], DatasetSchema] = {
     ("JJP", "data"): DatasetSchema(
         schema_key="JJP_data",
@@ -655,6 +807,22 @@ DATASET_SCHEMAS: Dict[Tuple[str, str], DatasetSchema] = {
             ("Ups_mu_2_Idx", "sel_Ups_mu2"),
         ),
         selected_particle_prefixes=("sel_Jpsi", "sel_Ups", "sel_Phi", "sel_Pri"),
+    ),
+    ("JJU", "data"): DatasetSchema(
+        schema_key="JJU_data",
+        channel="JJU",
+        dataset="data",
+        best_index_kind="JJU",
+        selected_branch_map=_jju_selected_branch_map(),
+        selected_muon_specs=(
+            ("Jpsi_1_mu_1_Idx", "sel_Jpsi1_mu1"),
+            ("Jpsi_1_mu_2_Idx", "sel_Jpsi1_mu2"),
+            ("Jpsi_2_mu_1_Idx", "sel_Jpsi2_mu1"),
+            ("Jpsi_2_mu_2_Idx", "sel_Jpsi2_mu2"),
+            ("Ups_mu_1_Idx", "sel_Ups_mu1"),
+            ("Ups_mu_2_Idx", "sel_Ups_mu2"),
+        ),
+        selected_particle_prefixes=("sel_Jpsi_1", "sel_Jpsi_2", "sel_Ups", "sel_Pri"),
     ),
 }
 
@@ -872,6 +1040,75 @@ def declare_rdf_helpers() -> None:
                 PassMuonGenMotherMatch(muGenMatchIdx, muGenMatchSource, genMotherIdx, genMotherPdgId, ups_mu2_idx, UPSILON_PDG_ID) &&
                 PassCandidateTrackGenMotherMatch(phiK1GenMatchIdx, phiK1GenMatchSource, genMotherIdx, genMotherPdgId, candIdx, PHI_PDG_ID) &&
                 PassCandidateTrackGenMotherMatch(phiK2GenMatchIdx, phiK2GenMatchSource, genMotherIdx, genMotherPdgId, candIdx, PHI_PDG_ID);
+        }
+
+        int BestCandIndexJJU(
+            const RVec<float>& jpsi1_mass,
+            const RVec<float>& jpsi1_pt,
+            const RVec<float>& jpsi1_eta,
+            const RVec<float>& jpsi1_mu1_idx,
+            const RVec<float>& jpsi1_mu2_idx,
+            const RVec<float>& jpsi2_mass,
+            const RVec<float>& jpsi2_pt,
+            const RVec<float>& jpsi2_eta,
+            const RVec<float>& jpsi2_mu1_idx,
+            const RVec<float>& jpsi2_mu2_idx,
+            const RVec<float>& ups_mass,
+            const RVec<float>& ups_pt,
+            const RVec<float>& ups_eta,
+            const RVec<float>& ups_mu1_idx,
+            const RVec<float>& ups_mu2_idx,
+            const RVec<float>& muPx,
+            const RVec<float>& muPy,
+            const RVec<float>& muPz,
+            const RVec<int>& muIdMask
+        ) {
+            int best_idx = -1;
+            double best_score = -1.;
+            const int n_cand = static_cast<int>(jpsi1_mass.size());
+            for (int i = 0; i < n_cand; ++i) {
+                if (i >= static_cast<int>(jpsi2_mass.size()) || i >= static_cast<int>(ups_mass.size()) ||
+                    i >= static_cast<int>(jpsi1_pt.size()) || i >= static_cast<int>(jpsi2_pt.size()) ||
+                    i >= static_cast<int>(ups_pt.size()) || i >= static_cast<int>(jpsi1_eta.size()) ||
+                    i >= static_cast<int>(jpsi2_eta.size()) || i >= static_cast<int>(ups_eta.size()) ||
+                    i >= static_cast<int>(jpsi1_mu1_idx.size()) || i >= static_cast<int>(jpsi1_mu2_idx.size()) ||
+                    i >= static_cast<int>(jpsi2_mu1_idx.size()) || i >= static_cast<int>(jpsi2_mu2_idx.size()) ||
+                    i >= static_cast<int>(ups_mu1_idx.size()) || i >= static_cast<int>(ups_mu2_idx.size())) {
+                    continue;
+                }
+
+                if (jpsi1_mass[i] < 2.9f || jpsi1_mass[i] > 3.3f) continue;
+                if (jpsi2_mass[i] < 2.9f || jpsi2_mass[i] > 3.3f) continue;
+                if (ups_mass[i] < 8.5f || ups_mass[i] > 11.4f) continue;
+                if (jpsi1_pt[i] <= 6.f || jpsi2_pt[i] <= 6.f) continue;
+                if (std::fabs(RapidityFromPtEtaM(jpsi1_pt[i], jpsi1_eta[i], jpsi1_mass[i])) >= 2.5f) continue;
+                if (std::fabs(RapidityFromPtEtaM(jpsi2_pt[i], jpsi2_eta[i], jpsi2_mass[i])) >= 2.5f) continue;
+                if (std::fabs(RapidityFromPtEtaM(ups_pt[i], ups_eta[i], ups_mass[i])) >= 2.5f) continue;
+
+                const int mu11 = static_cast<int>(jpsi1_mu1_idx[i]);
+                const int mu12 = static_cast<int>(jpsi1_mu2_idx[i]);
+                const int mu21 = static_cast<int>(jpsi2_mu1_idx[i]);
+                const int mu22 = static_cast<int>(jpsi2_mu2_idx[i]);
+                const int umu1 = static_cast<int>(ups_mu1_idx[i]);
+                const int umu2 = static_cast<int>(ups_mu2_idx[i]);
+                if (!PassMuonSelection(muPx, muPy, muPz, muIdMask, mu11)) continue;
+                if (!PassMuonSelection(muPx, muPy, muPz, muIdMask, mu12)) continue;
+                if (!PassMuonSelection(muPx, muPy, muPz, muIdMask, mu21)) continue;
+                if (!PassMuonSelection(muPx, muPy, muPz, muIdMask, mu22)) continue;
+                if (!PassMuonSelection(muPx, muPy, muPz, muIdMask, umu1)) continue;
+                if (!PassMuonSelection(muPx, muPy, muPz, muIdMask, umu2)) continue;
+
+                const double score = std::sqrt(
+                    jpsi1_pt[i] * jpsi1_pt[i] +
+                    jpsi2_pt[i] * jpsi2_pt[i] +
+                    ups_pt[i] * ups_pt[i]
+                );
+                if (score > best_score) {
+                    best_score = score;
+                    best_idx = i;
+                }
+            }
+            return best_idx;
         }
 
         double Score3(double pt1, double pt2, double pt3) {
@@ -1096,6 +1333,13 @@ def define_selected_columns(rdf, schema: DatasetSchema):
             "InvariantMass3(sel_Jpsi_1_pt, sel_Jpsi_1_eta, sel_Jpsi_1_phi, sel_Jpsi_1_mass, "
             "sel_Jpsi_2_pt, sel_Jpsi_2_eta, sel_Jpsi_2_phi, sel_Jpsi_2_mass, "
             "sel_Phi_pt, sel_Phi_eta, sel_Phi_phi, sel_Phi_mass)",
+        )
+    elif schema.channel == "JJU":
+        rdf = rdf.Define(
+            "sel_m_all",
+            "InvariantMass3(sel_Jpsi_1_pt, sel_Jpsi_1_eta, sel_Jpsi_1_phi, sel_Jpsi_1_mass, "
+            "sel_Jpsi_2_pt, sel_Jpsi_2_eta, sel_Jpsi_2_phi, sel_Jpsi_2_mass, "
+            "sel_Ups_pt, sel_Ups_eta, sel_Ups_phi, sel_Ups_mass)",
         )
     else:
         rdf = rdf.Define(

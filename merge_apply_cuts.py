@@ -80,6 +80,14 @@ def build_best_index_expr(schema_key: str) -> str:
             "Phi_mass, Phi_pt, Phi_eta, Phi_K_1_pt, Phi_K_1_eta, Phi_K_2_pt, Phi_K_2_eta, "
             "muPx, muPy, muPz, muon_id_mask)"
         )
+    if schema_key == "JJU_data":
+        return (
+            "BestCandIndexJJU("
+            "Jpsi_1_mass, Jpsi_1_pt, Jpsi_1_eta, Jpsi_1_mu_1_Idx, Jpsi_1_mu_2_Idx, "
+            "Jpsi_2_mass, Jpsi_2_pt, Jpsi_2_eta, Jpsi_2_mu_1_Idx, Jpsi_2_mu_2_Idx, "
+            "Ups_mass, Ups_pt, Ups_eta, Ups_mu_1_Idx, Ups_mu_2_Idx, "
+            "muPx, muPy, muPz, muon_id_mask)"
+        )
     if schema_key == "JUP_data":
         return (
             "BestCandIndexJUP("
@@ -103,7 +111,7 @@ def configure_rdf(schema, files, args):
     if args.max_events > 0:
         rdf = rdf.Range(args.max_events)
 
-    if schema.channel == "JJP":
+    if schema.channel in {"JJP", "JJU"}:
         mask_branch = MUON_ID_BRANCHES[args.muon_id]
         mask_expr = "OnesLike(muPx)" if mask_branch is None else mask_branch
         rdf = rdf.Define("muon_id_mask", mask_expr)
@@ -315,9 +323,9 @@ def process_with_local_staging(schema, remote_files, args, output_file: str):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Merge ntuples and apply assocPV cuts")
-    parser.add_argument("--channel", required=True, choices=["JJP", "JUP", "jjp", "jup"], help="Physics channel")
+    parser.add_argument("--channel", required=True, choices=["JJP", "JJU", "JUP", "jjp", "jju", "jup"], help="Physics channel")
     parser.add_argument("--dataset", default="data", choices=["data", "mc"], help="Input dataset type")
-    parser.add_argument("--sample", default=None, help="MC sample tag (JJP: DPS_1/DPS_2/TPS, JUP: SPS/DPS_1/DPS_2/DPS_3/TPS)")
+    parser.add_argument("--sample", default=None, help="MC sample tag (JJP: DPS_1/DPS_2/TPS, JUP: SPS/DPS_1/DPS_2/DPS_3/TPS; JJU currently data only)")
     parser.add_argument("-i", "--input-dir", default=None, help="Override input directory or ROOT file")
     parser.add_argument("-o", "--output", default=None, help="Output ROOT file")
     parser.add_argument("-j", "--jobs", type=int, default=8, help="RDataFrame thread count")
@@ -378,7 +386,7 @@ def main():
     if stage_remote:
         print(f"[INFO] stage batch  : {args.stage_batch_files}")
         print(f"[INFO] copy workers : {args.stage_copy_jobs}")
-    if channel == "JJP":
+    if channel in {"JJP", "JJU"}:
         print(f"[INFO] muon ID      : {args.muon_id}")
     else:
         print(f"[INFO] J/psi muon ID: {args.jpsi_muon_id}")
