@@ -33,15 +33,14 @@ JUP_DATASET_DIRS = tuple(f"ParkingDoubleMuonLowMass{i}" for i in range(8))
 JUP_REFACTOR_PREFIX = "crab3_JpsiUpsPhi_refactor"
 JUP_SUBMIT_PREFIX = "2604"
 
-MC_BASE = "/eos/ihep/cms/store/user/xcheng/MC_Production_v2/output"
+MC_BASE = "/eos/ihep/cms/store/user/xcheng/MC_Production_v3/output"
 MC_SAMPLE_PATHS = {
     "JJP": {
-        "SPS": os.path.join(MC_BASE, "JJP_SPS"),
-        "DPS": os.path.join(MC_BASE, "JJP_DPS2"),
-        "DPS1": "/eos/ihep/cms/store/user/xcheng/MC_Production_v3/output/JJP_DPS1",
         "DPS_1": "/eos/ihep/cms/store/user/xcheng/MC_Production_v3/output/JJP_DPS1",
-        "DPS2": os.path.join(MC_BASE, "JJP_DPS2"),
-        "DPS_2": os.path.join(MC_BASE, "JJP_DPS2"),
+        "DPS_2_CS": os.path.join(MC_BASE, "JJP_DPS2_CS"),
+        "DPS_2_G": os.path.join(MC_BASE, "JJP_DPS2_G"),
+        "SPS_CS": os.path.join(MC_BASE, "JJP_SPS_CS"),
+        "SPS_G": os.path.join(MC_BASE, "JJP_SPS_G"),
         "TPS": os.path.join(MC_BASE, "JJP_TPS"),
     },
     "JUP": {
@@ -377,7 +376,17 @@ def normalize_dataset(dataset: str) -> str:
 def normalize_sample(channel: str, sample: str | None) -> str | None:
     if sample is None:
         return None
-    sample_up = sample.upper().replace("DPS1", "DPS_1").replace("DPS2", "DPS_2").replace("DPS3", "DPS_3")
+    sample_up = sample.upper()
+    sample_aliases = {
+        "DPS1": "DPS_1",
+        "DPS2": "DPS_2",
+        "DPS3": "DPS_3",
+        "DPS2_CS": "DPS_2_CS",
+        "DPS2_G": "DPS_2_G",
+        "SPSCS": "SPS_CS",
+        "SPSG": "SPS_G",
+    }
+    sample_up = sample_aliases.get(sample_up, sample_up)
     valid = MC_SAMPLE_PATHS[channel]
     if sample_up not in valid:
         raise ValueError(f"Unsupported sample for {channel}: {sample}")
