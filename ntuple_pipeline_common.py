@@ -977,6 +977,38 @@ def declare_rdf_helpers() -> None:
             );
         }
 
+        int GetMatchedGenMotherIdx(
+            int genIdx,
+            int genMatchSource,
+            const RVec<int>& genMotherIdx
+        ) {
+            if (genMatchSource != 1) {
+                return -1;
+            }
+            if (genIdx < 0 || genIdx >= static_cast<int>(genMotherIdx.size())) {
+                return -1;
+            }
+            const int motherIdx = genMotherIdx[genIdx];
+            return motherIdx >= 0 ? motherIdx : -1;
+        }
+
+        int GetMuonGenMotherIdx(
+            const RVec<int>& muGenMatchIdx,
+            const RVec<int>& muGenMatchSource,
+            const RVec<int>& genMotherIdx,
+            int muIdx
+        ) {
+            if (muIdx < 0 || muIdx >= static_cast<int>(muGenMatchIdx.size()) ||
+                muIdx >= static_cast<int>(muGenMatchSource.size())) {
+                return -1;
+            }
+            return GetMatchedGenMotherIdx(
+                muGenMatchIdx[muIdx],
+                muGenMatchSource[muIdx],
+                genMotherIdx
+            );
+        }
+
         bool PassCandidateTrackGenMotherMatch(
             const RVec<int>& trackGenMatchIdx,
             const RVec<int>& trackGenMatchSource,
@@ -998,6 +1030,23 @@ def declare_rdf_helpers() -> None:
             );
         }
 
+        int GetCandidateTrackGenMotherIdx(
+            const RVec<int>& trackGenMatchIdx,
+            const RVec<int>& trackGenMatchSource,
+            const RVec<int>& genMotherIdx,
+            int candIdx
+        ) {
+            if (candIdx < 0 || candIdx >= static_cast<int>(trackGenMatchIdx.size()) ||
+                candIdx >= static_cast<int>(trackGenMatchSource.size())) {
+                return -1;
+            }
+            return GetMatchedGenMotherIdx(
+                trackGenMatchIdx[candIdx],
+                trackGenMatchSource[candIdx],
+                genMotherIdx
+            );
+        }
+
         bool PassSelectedJJPGenMatch(
             int jpsi1_mu1_idx,
             int jpsi1_mu2_idx,
@@ -1015,13 +1064,40 @@ def declare_rdf_helpers() -> None:
         ) {
             constexpr int JPSI_PDG_ID = 443;
             constexpr int PHI_PDG_ID = 333;
-            return
-                PassMuonGenMotherMatch(muGenMatchIdx, muGenMatchSource, genMotherIdx, genMotherPdgId, jpsi1_mu1_idx, JPSI_PDG_ID) &&
-                PassMuonGenMotherMatch(muGenMatchIdx, muGenMatchSource, genMotherIdx, genMotherPdgId, jpsi1_mu2_idx, JPSI_PDG_ID) &&
-                PassMuonGenMotherMatch(muGenMatchIdx, muGenMatchSource, genMotherIdx, genMotherPdgId, jpsi2_mu1_idx, JPSI_PDG_ID) &&
-                PassMuonGenMotherMatch(muGenMatchIdx, muGenMatchSource, genMotherIdx, genMotherPdgId, jpsi2_mu2_idx, JPSI_PDG_ID) &&
-                PassCandidateTrackGenMotherMatch(phiK1GenMatchIdx, phiK1GenMatchSource, genMotherIdx, genMotherPdgId, candIdx, PHI_PDG_ID) &&
-                PassCandidateTrackGenMotherMatch(phiK2GenMatchIdx, phiK2GenMatchSource, genMotherIdx, genMotherPdgId, candIdx, PHI_PDG_ID);
+            if (!PassMuonGenMotherMatch(muGenMatchIdx, muGenMatchSource, genMotherIdx, genMotherPdgId, jpsi1_mu1_idx, JPSI_PDG_ID) ||
+                !PassMuonGenMotherMatch(muGenMatchIdx, muGenMatchSource, genMotherIdx, genMotherPdgId, jpsi1_mu2_idx, JPSI_PDG_ID) ||
+                !PassMuonGenMotherMatch(muGenMatchIdx, muGenMatchSource, genMotherIdx, genMotherPdgId, jpsi2_mu1_idx, JPSI_PDG_ID) ||
+                !PassMuonGenMotherMatch(muGenMatchIdx, muGenMatchSource, genMotherIdx, genMotherPdgId, jpsi2_mu2_idx, JPSI_PDG_ID) ||
+                !PassCandidateTrackGenMotherMatch(phiK1GenMatchIdx, phiK1GenMatchSource, genMotherIdx, genMotherPdgId, candIdx, PHI_PDG_ID) ||
+                !PassCandidateTrackGenMotherMatch(phiK2GenMatchIdx, phiK2GenMatchSource, genMotherIdx, genMotherPdgId, candIdx, PHI_PDG_ID)) {
+                return false;
+            }
+
+            const int jpsi1_mu1_mother = GetMuonGenMotherIdx(muGenMatchIdx, muGenMatchSource, genMotherIdx, jpsi1_mu1_idx);
+            const int jpsi1_mu2_mother = GetMuonGenMotherIdx(muGenMatchIdx, muGenMatchSource, genMotherIdx, jpsi1_mu2_idx);
+            const int jpsi2_mu1_mother = GetMuonGenMotherIdx(muGenMatchIdx, muGenMatchSource, genMotherIdx, jpsi2_mu1_idx);
+            const int jpsi2_mu2_mother = GetMuonGenMotherIdx(muGenMatchIdx, muGenMatchSource, genMotherIdx, jpsi2_mu2_idx);
+            const int phi_k1_mother = GetCandidateTrackGenMotherIdx(phiK1GenMatchIdx, phiK1GenMatchSource, genMotherIdx, candIdx);
+            const int phi_k2_mother = GetCandidateTrackGenMotherIdx(phiK2GenMatchIdx, phiK2GenMatchSource, genMotherIdx, candIdx);
+
+            if (jpsi1_mu1_mother < 0 || jpsi1_mu2_mother < 0 ||
+                jpsi2_mu1_mother < 0 || jpsi2_mu2_mother < 0 ||
+                phi_k1_mother < 0 || phi_k2_mother < 0) {
+                return false;
+            }
+            if (jpsi1_mu1_mother != jpsi1_mu2_mother) {
+                return false;
+            }
+            if (jpsi2_mu1_mother != jpsi2_mu2_mother) {
+                return false;
+            }
+            if (jpsi1_mu1_mother == jpsi2_mu1_mother) {
+                return false;
+            }
+            if (phi_k1_mother != phi_k2_mother) {
+                return false;
+            }
+            return true;
         }
 
         bool PassSelectedJUPGenMatch(
@@ -1042,13 +1118,40 @@ def declare_rdf_helpers() -> None:
             constexpr int JPSI_PDG_ID = 443;
             constexpr int UPSILON_PDG_ID = 553;
             constexpr int PHI_PDG_ID = 333;
-            return
-                PassMuonGenMotherMatch(muGenMatchIdx, muGenMatchSource, genMotherIdx, genMotherPdgId, jpsi_mu1_idx, JPSI_PDG_ID) &&
-                PassMuonGenMotherMatch(muGenMatchIdx, muGenMatchSource, genMotherIdx, genMotherPdgId, jpsi_mu2_idx, JPSI_PDG_ID) &&
-                PassMuonGenMotherMatch(muGenMatchIdx, muGenMatchSource, genMotherIdx, genMotherPdgId, ups_mu1_idx, UPSILON_PDG_ID) &&
-                PassMuonGenMotherMatch(muGenMatchIdx, muGenMatchSource, genMotherIdx, genMotherPdgId, ups_mu2_idx, UPSILON_PDG_ID) &&
-                PassCandidateTrackGenMotherMatch(phiK1GenMatchIdx, phiK1GenMatchSource, genMotherIdx, genMotherPdgId, candIdx, PHI_PDG_ID) &&
-                PassCandidateTrackGenMotherMatch(phiK2GenMatchIdx, phiK2GenMatchSource, genMotherIdx, genMotherPdgId, candIdx, PHI_PDG_ID);
+            if (!PassMuonGenMotherMatch(muGenMatchIdx, muGenMatchSource, genMotherIdx, genMotherPdgId, jpsi_mu1_idx, JPSI_PDG_ID) ||
+                !PassMuonGenMotherMatch(muGenMatchIdx, muGenMatchSource, genMotherIdx, genMotherPdgId, jpsi_mu2_idx, JPSI_PDG_ID) ||
+                !PassMuonGenMotherMatch(muGenMatchIdx, muGenMatchSource, genMotherIdx, genMotherPdgId, ups_mu1_idx, UPSILON_PDG_ID) ||
+                !PassMuonGenMotherMatch(muGenMatchIdx, muGenMatchSource, genMotherIdx, genMotherPdgId, ups_mu2_idx, UPSILON_PDG_ID) ||
+                !PassCandidateTrackGenMotherMatch(phiK1GenMatchIdx, phiK1GenMatchSource, genMotherIdx, genMotherPdgId, candIdx, PHI_PDG_ID) ||
+                !PassCandidateTrackGenMotherMatch(phiK2GenMatchIdx, phiK2GenMatchSource, genMotherIdx, genMotherPdgId, candIdx, PHI_PDG_ID)) {
+                return false;
+            }
+
+            const int jpsi_mu1_mother = GetMuonGenMotherIdx(muGenMatchIdx, muGenMatchSource, genMotherIdx, jpsi_mu1_idx);
+            const int jpsi_mu2_mother = GetMuonGenMotherIdx(muGenMatchIdx, muGenMatchSource, genMotherIdx, jpsi_mu2_idx);
+            const int ups_mu1_mother = GetMuonGenMotherIdx(muGenMatchIdx, muGenMatchSource, genMotherIdx, ups_mu1_idx);
+            const int ups_mu2_mother = GetMuonGenMotherIdx(muGenMatchIdx, muGenMatchSource, genMotherIdx, ups_mu2_idx);
+            const int phi_k1_mother = GetCandidateTrackGenMotherIdx(phiK1GenMatchIdx, phiK1GenMatchSource, genMotherIdx, candIdx);
+            const int phi_k2_mother = GetCandidateTrackGenMotherIdx(phiK2GenMatchIdx, phiK2GenMatchSource, genMotherIdx, candIdx);
+
+            if (jpsi_mu1_mother < 0 || jpsi_mu2_mother < 0 ||
+                ups_mu1_mother < 0 || ups_mu2_mother < 0 ||
+                phi_k1_mother < 0 || phi_k2_mother < 0) {
+                return false;
+            }
+            if (jpsi_mu1_mother != jpsi_mu2_mother) {
+                return false;
+            }
+            if (ups_mu1_mother != ups_mu2_mother) {
+                return false;
+            }
+            if (jpsi_mu1_mother == ups_mu1_mother) {
+                return false;
+            }
+            if (phi_k1_mother != phi_k2_mother) {
+                return false;
+            }
+            return true;
         }
 
         int BestCandIndexJJU(
